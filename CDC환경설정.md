@@ -50,3 +50,25 @@
     EXEC sys.sp_cdc_disable_db
     GO
 ```
+
+KAFKA CONNECT에 등록할 debezium MS-SQL 커넥터 환경 설정 파일 (테스트 완료)
+
+```json
+{
+    "name": "mydb_connector",
+    "config": {
+        "connector.class": "io.debezium.connector.sqlserver.SqlServerConnector",
+        "tasks.max": "1",
+        "database.hostname": "192.168.253.132",
+        "database.port": "1433",
+        "database.user": "sa",
+        "database.password": "gk",
+        "database.names": "MyDB",
+        "table.include.list": "dbo.Customer",
+        "topic.prefix": "mydb",
+        "schema.history.internal.kafka.bootstrap.servers": "localhost:9092",
+        "schema.history.internal.kafka.topic": "schema-changes.mssql.mydb",
+        "database.encrypt": "false"
+    }
+}
+```
