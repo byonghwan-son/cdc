@@ -412,4 +412,107 @@ Value = `{"type":"execute-snapshot","data": {"data-collections": ["schema1.produ
 
 <u>증분 스냅샷 중지</u>
 
-소스 데이터베이스의 테이블에 신호를 보내 증분 스냅샷을 중지 가능. INSERT SQL 쿼리를 보내 스냅샷 중지 신호를 테이블에 제출.
+원본 데이터베이스의 테이블에 신호를 보내 증분 스냅샷 중지 가능. 스냅샷 중지 INSERT SQL 쿼리를 신호 테이블에 제출.
+
+Debezium은 신호 테이블의 변경 사항을 감지하고 신호를 읽고 진행 중인 증분 스냅샷 작업을 중지.
+
+제출한 쿼리는 `incremental`의 스냅샷 작업을 지정하고 선택적으로 현재 실행 중인 스냅샷의 테이블을 제거하도록 지정.
+
+전제조건
+
+* 신호가 활성화 되어 있어야 함.
+  * 신호 데이터 컬렉션이 원본 데이터베이스에 존재
+  * `signal.data.collection` 속성에 신호 데이터 컬렉션 지정
+
+소스 신호 채널을 사용하여 증분 스냅샷 중지
+
+1. 신호 테이블에 다음의 SQL 쿼리를 보내서 임시 증분 스냅샷을 중지  
+
+```sql
+INSERT INTO <signalTable> (id, type, data) values ('<id>', 'stop-snapshot', '{"data-collections": ["<tableName>","<tableName>"], "type":"incremental"}');
+```
+
+예를 들면,
+
+```sql
+NSERT INTO myschema.debezium_signal (id, type, data)              ①
+values ('ad-hoc-1',                                               ②
+    'stop-snapshot',                                              ③
+    '{"data-collections": ["schema1.table1", "schema2.table2"],   ④
+    "type":"incremental"}');                                      ⑤
+```
+
+id, type, data 파라미터 각각의 의미는 [signaling 테이블 필드 설명 참조](https://debezium.io/documentation/reference/stable/configuration/signalling.html#debezium-signaling-description-of-required-structure-of-a-signaling-data-collection).
+
+아래의 테이블에 예제의 각 파라미터를 설명하고 있음.
+
+|항목|값|설명|
+|-|-|-|
+|1|myschema.debezium_signal|원본 데이터베이스에 있는 Signaling Table을 지정|
+|2|ad-hoc-1|id 매개변수는 신호 요청에 대한 ID 식별자로 할당되는 임의의 문자열을 지정. 이 값을 사용하여 신호 테이블의 항목에 대한 로깅 메시지를 식별. Debezium은 이 문자열을 사용하지 않으며 오히려 스냅샷 중에 Debezium은 워터마킹(해쉬값) 신호로 자체 ID 문자열을 생성|
+|3|stop-snapshot|Signal이 트리거 하려는 작업을 지정|
+|4|data-collections|스냅샷에 포함할 테이블 이름과 일치하는 테이블 이름 또는 정규 표현식의 배열을 지정하는 신호 데이터 필드의 필수 구성요소. 배열에는 `signal.data.collection` 구성 속성에서 커넥터의 신호 테이블 이름을 지정하는 데 사용하는 것과 동일한 형식을 사용하여 정규화된 이름으로 테이블과 일치하는 정규식을 나열. <u>`data` 필드가 생략되면 진행 중인 전에 증분 스냅샷을 중지.</u>|
+|5|incremental|중지할 스냅샷 작업 종류를 지정하는 신호 데이터 필드의 선택적 유형 구성 요소. 현재 유일하게 유효한 옵션은 기본값인 `incremental`. <u>값을 지정하지 않으면 커넥터가 증분 스냅샷을 중지하지 못함.</u>|
+
+2. Kafka 신호 채널을 사용하여 증분 스냅삿 중지
+
+[카프카 topic](https://debezium.io/documentation/reference/stable/configuration/signalling.html#debezium-signaling-enabling-kafka-signaling-channel)에 메시지를 보내 커넥터가 임시 증분 스냅샷을 중지하도록 요청 가능.
+
+Kafka 메시지의 키는 커넥터 구성 옵션의 `topic.prefix` 값과 반드시 일치.
+
+메시지의 값은 `type`및 `data`필드가 있는 JSON 개체
+
+신호 유형은 `stop-snapshot`이며 `data` 필드에는 다음 필드 항목이 들어가야 함.
+
+|필드|기본값|설명|
+|-|-|-|
+|type|incremental|실행할 스냅샷의 유형. 현재 Debezium은 `incremental` 유형만 지원.|
+|data-collections|N/A|스냅샷에 포함할 테이블의 정규화된 이름과 일치하는 정규 표현식의 배열.<br>`signal.data.collection` 구성 옵션 에 필요한 것과 동일한 형식을 사용하여 이름을 지정.|
+
+다음 예는 일반적인 stop-snapshotKafka 메시지
+
+```json
+Key = `test_connector`
+Value = `{"type":"stop-snapshot","data": {"data-collections": ["schema1.table1", "schema1.table2"], "type": "INCREMENTAL"}}`
+```
+
+<u>Blocking 스냅샷</u>
+
+스냅샷 관리에 더 많은 유연성을 제공하기 위해 Debezium에는 `Blocking 스냅샷` 이라고 알려진 임시 스냅샷 메커니즘을 포함. 차단 스냅샷은 [Debezium 커넥터에 신호를 보내는데 Debezium 메커니즘을 사용](https://debezium.io/documentation/reference/stable/configuration/signalling.html).
+
+Blocking 스냅샷은 런타임에 트리거할 수 있다는 점을 제외하면 initial 스냅샷과 동일하게 동작.
+
+다음 상황에서는 initial 스냅샷 프로세스를 사용하는 대신 Blocking 스냅샷을 실행할 수 있습니다.
+
+* 새 테이블을 추가하고 커넥터가 실행되는 동안 스냅샷을 완료하려 함.
+* 큰 테이블을 추가하고 증분 스냅샷보다 더 짧은 시간에 스냅샷을 완료하려 함.
+
+<u>Blocking 스냅샷 프로세스</u>
+
+Blocking 스냅샷을 실행하면 Debezium은 스트리밍을 중지한 다음 초기 스냅샷 중에 사용하는 것과 동일한 프로세스에 따라 지정된 테이블의 스냅샷을 시작.  
+스냅샷이 완료되면 스트리밍을 재개
+
+<u>스냅샷 구성</u>
+
+Signaling의 `data` 구성 요소에는 다음 속성 설정.
+
+* data-collections: 스냅샷이 되어야 하는 테이블을 지정합니다.
+* 추가 조건: 테이블마다 다른 필터를 지정할 수 있습니다.
+  * 속성 data-collection은 필터가 적용될 테이블의 정규화된 이름
+  * 해당 `filter` 속성 은 `snapshot.select.statement.overrides`과 같은 값을 가짐
+
+```json
+{"type": "blocking", 
+ "data-collections": ["schema1.table1", "schema1.table2"], 
+ "additional-conditions": [
+   {"data-collection": "schema1.table1", "filter": "SELECT * FROM [schema1].[table1] WHERE column1 = 0 ORDER BY column2 DESC"}, 
+   {"data-collection": "schema1.table2", "filter": "SELECT * FROM [schema1].[table2] WHERE column2 > 0"}
+ ]
+}
+```
+
+<u>중복 가능성</u>
+
+스냅샷을 트리거하기 위해 신호를 보내는 시간과 스트리밍이 중지되고 스냅샷이 시작되는 시간 사이에 지연 발생 가능.  
+이러한 지연으로 인해 스냅샷이 완료된 후 커넥터는 스냅샷에서 캡처한 레코드를 복제하는 일부 이벤트 레코드를 생성할 수 있음.
+
