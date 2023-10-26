@@ -72,3 +72,7 @@ KAFKA CONNECT에 등록할 debezium MS-SQL 커넥터 환경 설정 파일 (테�
     }
 }
 ```
+
+---
+zoo_keeper, kafka, connect를 모두 실행해서 데이터를 로딩하고 있는 중에 스키마를 변경하고 데이터를 전송하면  
+다음 부터 데이터 전송이 안됨.
