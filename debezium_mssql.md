@@ -516,3 +516,772 @@ Signaling의 `data` 구성 요소에는 다음 속성 설정.
 스냅샷을 트리거하기 위해 신호를 보내는 시간과 스트리밍이 중지되고 스냅샷이 시작되는 시간 사이에 지연 발생 가능.  
 이러한 지연으로 인해 스냅샷이 완료된 후 커넥터는 스냅샷에서 캡처한 레코드를 복제하는 일부 이벤트 레코드를 생성할 수 있음.
 
+#### 변경 데이터 테이블 읽기
+
+커넥터가 처음 시작되면 캡처된 테이블 구조의 구조적 스냅샷을 만들고 이 정보를 내부 데이터베이스 Schema history topic에 유지(`schema.history.internal.kafka.topic`).  
+그런 다음 커넥터는 각 원본 테이블에 대한 변경 테이블을 식별하고 다음의 4단계를 시작.
+
+1. 각 변경 테이블에 대해 커넥터는 마지막으로 저장된 최대 LSN과 현재 최대 LSN 사이에 생성된 모든 변경 내용 읽기.
+2. 커넥터는 커밋 LSN(`payload.source.commit_lsn`) 및 변경 LSN(`payload.source.chnage_lsn`) 값을 기준으로 읽는 변경 사항을 오름차순 정렬. 이 정렬 순서는 변경 사항이 데이터베이스에서 발생한 것과 동일한 순서로 Debezium에서 재생되도록 보장.
+3. 커넥터는 커밋 및 변경 LSN을 Kafka Connect에 오프셋(`connect-offsets`)으로 전달.
+4. 커넥터는 최대 LSN을 저장하고 1단계부터 프로세스를 다시 시작.
+
+```json
+# show_topic_messages json mydb.MyDB.dbo.Customer
+"payload": {
+    "before": null,
+    "after": {
+      "CustomerName": "홍길동",
+      "Age": 21,
+      "CustomerAddress": "해운대구",
+      "Salary": "HoSA",
+      "IDX": 2
+    },
+    "source": {
+      "version": "2.4.0.Final",
+      "connector": "sqlserver",
+      "name": "mydb",
+      "ts_ms": 1698114165367,
+      "snapshot": "false",
+      "db": "MyDB",
+      "sequence": null,
+      "schema": "dbo",
+      "table": "Customer",
+      "change_lsn": "00000039:00000b80:0003",   # 이전 lsn, 최초값 : null
+      "commit_lsn": "00000039:00000b80:0004",   # 커밋 후 lsn
+      "event_serial_no": 1
+    },
+    "op": "c",
+    "ts_ms": 1698114168434,
+    "transaction": null
+  }
+
+  # show_topic_messages json schema-changes.mssql.mydb
+  {
+  "source": {
+    "server": "mydb",
+    "database": "MyDB"
+  },
+  "position": {
+    "commit_lsn": "00000039:000008f0:001c",
+    "snapshot": true,
+    "snapshot_completed": false
+  },
+  "ts_ms": 1698114047182,
+  "databaseName": "MyDB",
+  "schemaName": "dbo",
+  "tableChanges": [
+    {
+      "type": "CREATE",
+      "id": "\"MyDB\".\"dbo\".\"Customer\"",
+      "table": {
+        "defaultCharsetName": null,
+        "primaryKeyColumnNames": [
+          "IDX"
+        ],
+        "columns": [
+          {
+            "name": "CustomerName",
+            "jdbcType": 12,
+            "typeName": "varchar",
+            "typeExpression": "varchar",
+            "charsetName": null,
+            "length": 10,
+            "position": 1,
+            "optional": false,
+            "autoIncremented": false,
+            "generated": false,
+            "comment": null,
+            "hasDefaultValue": false,
+            "enumValues": []
+          },
+          {
+            "name": "Age",
+            "jdbcType": 4,
+            "typeName": "int",
+            "typeExpression": "int",
+            "charsetName": null,
+            "length": 10,
+            "scale": 0,
+            "position": 2,
+            "optional": false,
+            "autoIncremented": false,
+            "generated": false,
+            "comment": null,
+            "hasDefaultValue": false,
+            "enumValues": []
+          },
+          {
+            "name": "CustomerAddress",
+            "jdbcType": 12,
+            "typeName": "varchar",
+            "typeExpression": "varchar",
+            "charsetName": null,
+            "length": 200,
+            "position": 3,
+            "optional": false,
+            "autoIncremented": false,
+            "generated": false,
+            "comment": null,
+            "hasDefaultValue": false,
+            "enumValues": []
+          },
+          {
+            "name": "Salary",
+            "jdbcType": 3,
+            "typeName": "decimal",
+            "typeExpression": "decimal",
+            "charsetName": null,
+            "length": 10,
+            "scale": 2,
+            "position": 4,
+            "optional": false,
+            "autoIncremented": false,
+            "generated": false,
+            "comment": null,
+            "hasDefaultValue": false,
+            "enumValues": []
+          },
+          {
+            "name": "IDX",
+            "jdbcType": -5,
+            "typeName": "bigint identity",
+            "typeExpression": "bigint identity",
+            "charsetName": null,
+            "length": 19,
+            "scale": 0,
+            "position": 5,
+            "optional": false,
+            "autoIncremented": true,
+            "generated": false,
+            "comment": null,
+            "hasDefaultValue": false,
+            "enumValues": []
+          }
+        ],
+        "attributes": []
+      },
+      "comment": null
+    }
+  ]
+}
+```
+
+다시 시작한 후 커넥터는 읽은 마지막 오프셋(LSN 커밋 및 변경)부터 처리를 재개.
+
+```json
+# show_topic_messages json connect-offsets
+[
+  "mydb_connector",
+  {
+    "server": "mydb",
+    "database": "MyDB"
+  }
+]
+{
+  "commit_lsn": "00000039:000008f0:001c",
+  "snapshot": true,
+  "snapshot_completed": true
+}
+[
+  "mydb_connector",
+  {
+    "server": "mydb",
+    "database": "MyDB"
+  }
+]
+{
+  "transaction_id": null,
+  "event_serial_no": 1,
+  "commit_lsn": "00000039:00000b80:0004",
+  "change_lsn": "00000039:00000b80:0003"
+}
+[
+  "mydb_connector",
+  {
+    "server": "mydb",
+    "database": "MyDB"
+  }
+]
+{
+  "transaction_id": null,
+  "event_serial_no": 1,
+  "commit_lsn": "00000039:00002a80:0003",
+  "change_lsn": "00000039:00002a80:0002"
+}
+[
+  "mydb_connector",
+  {
+    "server": "mydb",
+    "database": "MyDB"
+  }
+]
+{
+  "transaction_id": null,
+  "event_serial_no": 1,
+  "commit_lsn": "00000042:000020b0:0004",
+  "change_lsn": "00000042:000020b0:0003"
+}
+```
+
+커넥터는 원본 테이블에 대해 CDC가 활성화 또는 비활성화되었는지 여부를 감지하고 읽기 동작 조정 가능.
+
+#### 데이터베이스에 기록된 최대 LSN이 없습니다.
+
+다음과 같은 이유로 데이터베이스에 최대 LSN이 기록되지 않는 상황이 있을 수 있음.
+
+1. SQL Server 에이전트가 실행되고 있지 않음.
+2. 아직 변경 테이블에 변경 사항이 기록되지 않음.
+3. 데이터베이스 활동이 낮고 cdc 정리 작업이 주기적으로 cdc 테이블에서 항목을 삭제.
+
+이러한 가능성 중에서 SQL Server 에이전트를 실행하는 것이 전제 조건이므로 1번이 실제 문제임.(2번과 3번은 정상).
+
+이 문제를 완화하고 1번과 다른 것을 구별하기 위해 다음 쿼리를 통해 SQL Server 에이전트의 상태를 확인합니다 
+
+```sql
+SELECT CASE WHEN dss.[status]=4 THEN 1 ELSE 0 END AS isRunning FROM [#db].sys.dm_server_services dss WHERE dss.[servicename] LIKE N’SQL Server Agent (%';
+```
+
+SQL Server 에이전트가 실행되고 있지 않으면 로그에 `No maximum LSN records in the Database; SQL Server Agent is running`이라는 오류가 기록됨.
+
+#### 제한사항
+
+SQL Server에서 변경 캡처 인스턴스를 생성하려는 기본 개체는 반드시 테이블. 결과적으로 인덱싱된 뷰(구체화된 뷰라고도 함)에서 변경 내용을 캡처하는 것은 SQL Server 및 Debezium SQL Server 커넥터에서 지원하지 않음.
+
+#### Topic Names (토픽 이름)
+
+기본적으로 SQL Server 커넥터는 테이블에서 발생하는 모든 `INSERT`, `UPDATE` 및 `DELETE` 작업에 대한 이벤트를 해당 테이블과 관련된 단일 Apache Kafka Topic에 기록.  
+커넥터는 다음 규칙을 사용하여 변경 이벤트 Topic의 이름을 지정.
+
+`<topicPrefix>.<schemaName>.<tableName>`
+
+기본 이름의 구성 요소에 대한 정의
+
+*주제 접두어*  
+topic.prefix 구성 속성에 명시된 서버의 논리적 이름.
+
+*스키마 이름*  
+변경 이벤트가 발생한 데이터베이스 스키마의 이름.
+
+*테이블 이름*  
+변경 이벤트가 발생한 데이터베이스 테이블의 이름.
+
+예를 들어 `fulfillment`가 논리 서버 이름이고 `dbo`가 스키마 이름이고, 데이터베이스에 이름이 `products`, `products_on_hand`, `customers`및 `orders`인 테이블이 포함된 경우 커넥터는 변경 이벤트 레코드를 다음 Kafka Topic으로 스트리밍합니다.
+
+* `fulfillment.testDB.dbo.products`
+* `fulfillment.testDB.dbo.products_on_hand`
+* `fulfillment.testDB.dbo.customers`
+* `fulfillment.testDB.dbo.orders`
+
+커넥터는 유사한 명명 규칙을 적용하여 Internal database schema history topic, [schema change topic](https://debezium.io/documentation/reference/stable/connectors/sqlserver.html#about-the-debezium-sqlserver-connector-schema-change-topic) 및 [transaction metadata topic](https://debezium.io/documentation/reference/stable/connectors/sqlserver.html#sqlserver-transaction-metadata)에 레이블을 지정.
+
+기본 topic 이름이 요구 사항을 충족하지 않는 경우 사용자 지정 topic 이름으로 구성 가능.  
+사용자 정의 topic 이름을 구성하려면 논리적 topic routing SMT에 정규식을 지정.  
+논리적 topic routing SMT를 사용하여 topic 이름 지정을 사용자 정의하는 방법에 대한 자세한 내용은 [topic routing](https://debezium.io/documentation/reference/stable/transformations/topic-routing.html#topic-routing)을 참조하세요.
+
+#### Schema history topic
+
+데이터베이스 클라이언트가 데이터베이스를 쿼리할 때 클라이언트는 데이터베이스의 현재 스키마를 사용.  
+그러나 데이터베이스 스키마는 언제든지 변경 가능. 즉, 커넥터는 각 `INSERT`, `UPDATE` 또는 `DELETE` 작업이 기록된 당시의 스키마를 식별할 수 있어야 함.  
+또한 커넥터는 반드시 현재 스키마를 모든 이벤트에 적용할 수는 없음. 이벤트가 비교적 오래된 경우 현재 스키마가 적용되기 전에 기록되었을 가능성이 있음.
+
+Debezium SQL Server 커넥터는 스키마 변경 후 발생하는 변경 이벤트의 올바른 처리를 보장하기 위해  
+관련 데이터 테이블의 구조를 미러링하는 SQL Server 변경 테이블의 구조를 기반으로 새 스키마의 스냅샷을 저장.  
+커넥터는 데이터베이스 Schema history Kafka topic(`schema.history.internal.kafka.topic`)에 스키마 변경으로 인한 작업의 LSN과 함께  
+테이블 스키마 정보를 저장.  
+커넥터는 저장된 스키마 정보를 사용하여 각 `INSERT`, `UPDATE` 또는 `DELETE`작업 시 테이블 구조를 올바르게 미러링하는 변경 이벤트를 생성.
+
+충돌 또는 정상적인 중지 후에 커넥터가 다시 시작되면 마지막으로 읽은 위치부터 SQL Server CDC 테이블의 항목 읽기를 다시 시작.  
+커넥터는 데이터베이스 Schema history topic에서 읽는 스키마 정보를 기반으로 커넥터가 다시 시작되는 위치에 존재했던 테이블 구조를 적용.
+
+캡처 모드에 있는 Db2 테이블의 스키마를 업데이트하는 경우 해당 변경 테이블의 스키마도 업데이트하는 것이 중요.  
+데이터베이스 스키마를 업데이트하려면 높은 권한을 가진 SQL Server 데이터베이스 관리자가 필요.  
+Debezium 환경에서 SQL Server 데이터베이스 스키마를 업데이트하는 방법에 대한 자세한 내용은 [데이터베이스 스키마 진화](https://debezium.io/documentation/reference/stable/connectors/sqlserver.html#sqlserver-schema-evolution)를 참조하세요 .
+
+데이터베이스 Schema history topic은 내부 커넥터 전용.  
+선택적으로 커넥터는 [Consumer 애플리케이션을 위한 다른 topic으로 스키마 변경 이벤트](#Schema-change-topic)를 내보낼 수도 있음.
+
+추가 리소스
+* [Debezium 이벤트 레코드를 수신하는 주제의 기본 이름](https://debezium.io/documentation/reference/stable/connectors/sqlserver.html#sqlserver-topic-names).
+
+#### Schema change topic
+
+CDC가 활성화된 각 테이블에 대해 Debezium SQL Server 커넥터는 데이터베이스의 테이블에 적용되는 스키마 변경 이벤트 기록을 저장.  
+커넥터는 이름이 *`<topicPrefix>`* Kafka topic인 schema change event를 기록. `topicPrefix`는 `topic.prefix` 구성 속성에 명시된 논리 서버.
+
+커넥터가 schema change topic으로 보내는 메시지에는 payload가 포함되어 있으며, 선택적으로 변경 이벤트 메시지의 스키마도 포함됨.
+
+스키마 변경 이벤트 요소
+
+**name**  
+　　스키마 변경 이벤트 메시지 이름
+
+**type**  
+　　변경 이벤트 메시지 유형
+
+**version**  
+　　스키마 버전. 스키마가 변경될 때마다 증가되는 정수
+
+**fields**  
+　　변경 이벤트 메시지에 포함된 필드
+
+<u>예: SQL Server 커넥터 스키마 변경 항목의 스키마</u>
+
+JSON 형식의 일반적인 스키마 구조
+
+```json
+{
+  "schema": {
+    "type": "struct",
+    "fields": [
+      {
+        "type": "string",
+        "optional": false,
+        "field": "databaseName"
+      }
+    ],
+    "optional": false,
+    "name": "io.debezium.connector.sqlserver.SchemaChangeKey",
+    "version": 1
+  },
+  "payload": {
+    "databaseName": "MyDB"  ①
+  }
+}
+```
+
+1. 스키마 변경 이벤트 메시지의 페이로드에 포함되는 요소
+
+**dabaseName**  
+　　명령문이 적용되는 데이터베이스 이름. `databaseName` 값은 메세지의 키 값.
+
+**tableChanges**  
+　　스키마 변경 후 전체 테이블 스키마의 구조화된 표현.  
+　　필드 `tableChanges`에는 테이블의 각 열에 대한 상세 내역을 가진 배열을 포함.  
+　　구조화된 표현은 데이터를 JSON 또는 Avro 형식으로 표시하므로 소비자는 먼저 DDL 파서를 통해 메시지를 처리하지 않고도 메시지를 쉽게 읽을 수 있음.
+
+```json
+"tableChanges": [
+      {
+        "type": "CREATE",
+        "id": "\"MyDB\".\"dbo\".\"Customer\"",
+        "table": {
+          "defaultCharsetName": null,
+          "primaryKeyColumnNames": [
+            "IDX"
+          ],
+          "columns": [
+            {
+              "name": "CustomerName",
+              "jdbcType": 12,
+              "nativeType": null,
+              "typeName": "varchar",
+              "typeExpression": "varchar",
+              "charsetName": null,
+              "length": 10,
+              "scale": null,
+              "position": 1,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "Age",
+              "jdbcType": 4,
+              "nativeType": null,
+              "typeName": "int",
+              "typeExpression": "int",
+              "charsetName": null,
+              "length": 10,
+              "scale": 0,
+              "position": 2,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "CustomerAddress",
+              "jdbcType": 12,
+              "nativeType": null,
+              "typeName": "varchar",
+              "typeExpression": "varchar",
+              "charsetName": null,
+              "length": 200,
+              "scale": null,
+              "position": 3,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "Salary",
+              "jdbcType": 3,
+              "nativeType": null,
+              "typeName": "decimal",
+              "typeExpression": "decimal",
+              "charsetName": null,
+              "length": 10,
+              "scale": 2,
+              "position": 4,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "IDX",
+              "jdbcType": -5,
+              "nativeType": null,
+              "typeName": "bigint identity",
+              "typeExpression": "bigint identity",
+              "charsetName": null,
+              "length": 19,
+              "scale": 0,
+              "position": 5,
+              "optional": false,
+              "autoIncremented": true,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            }
+          ],
+          "comment": null
+        }
+      }
+    ]
+```
+
+> [!NOTE]
+> 커넥터가 테이블을 캡처하도록 구성되면 스키마 변경 항목뿐만 아니라 내부 데이터베이스 스키마 기록 항목에도 테이블의 스키마 변경 기록을 저장.  
+> 내부 데이터베이스 schema history topic 은 커넥터 전용이며 애플리케이션을 사용하여 직접 사용하기 위한 것이 아님.  
+> 스키마 변경에 대한 알림이 필요한 애플리케이션은 schema change topic의 해당 정보만 사용하는지 확인 필요.
+
+> [!WARNING]
+> 커넥터가 스키마 변경 주제에 내보내는 메시지 형식은 잠복기 상태이며 예고 없이 변경될 수 있음.
+
+Debezium은 다음 이벤트가 발생할 때 schema change topic에 메시지를 보냄.
+
+* 테이블에 대해 CDC를 활성화.
+* 테이블에 대해 CDC를 비활성화.
+* 스키마 발전 절차 에 따라 CDC가 활성화된 테이블의 구조를 변경
+
+<u>예: SQL Server 커넥터 스키마 변경 항목으로 내보내는 메시지</u>
+
+다음 예는 schema change topic의 메시지이며 테이블 스키마의 논리적 표현이 포함되어 있음.
+
+```json
+{
+  "schema": {
+    ...
+  },
+  "payload": {
+    "source": {
+      "version": "2.4.0.Final",
+      "connector": "sqlserver",
+      "name": "mydb",
+      "ts_ms": 1698304664178,
+      "snapshot": "true",
+      "db": "MyDB",
+      "sequence": null,
+      "schema": "dbo",
+      "table": "Customer",
+      "change_lsn": null,
+      "commit_lsn": "00000047:00005200:0001",
+      "event_serial_no": null
+    },
+    "ts_ms": 1698304664179, ①
+    "databaseName": "MyDB", ②
+    "schemaName": "dbo",
+    "ddl": null, ③
+    "tableChanges": [ ④
+      {
+        "type": "CREATE", ⑤
+        "id": "\"MyDB\".\"dbo\".\"Customer\"", ⑥
+        "table": { ⑦
+          "defaultCharsetName": null,
+          "primaryKeyColumnNames": [ ⑧
+            "IDX"
+          ],
+          "columns": [ ⑨
+            {
+              "name": "CustomerName",
+              "jdbcType": 12,
+              "nativeType": null,
+              "typeName": "varchar",
+              "typeExpression": "varchar",
+              "charsetName": null,
+              "length": 10,
+              "scale": null,
+              "position": 1,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "Age",
+              "jdbcType": 4,
+              "nativeType": null,
+              "typeName": "int",
+              "typeExpression": "int",
+              "charsetName": null,
+              "length": 10,
+              "scale": 0,
+              "position": 2,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "CustomerAddress",
+              "jdbcType": 12,
+              "nativeType": null,
+              "typeName": "varchar",
+              "typeExpression": "varchar",
+              "charsetName": null,
+              "length": 200,
+              "scale": null,
+              "position": 3,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "Salary",
+              "jdbcType": 3,
+              "nativeType": null,
+              "typeName": "decimal",
+              "typeExpression": "decimal",
+              "charsetName": null,
+              "length": 10,
+              "scale": 2,
+              "position": 4,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "IDX",
+              "jdbcType": -5,
+              "nativeType": null,
+              "typeName": "bigint identity",
+              "typeExpression": "bigint identity",
+              "charsetName": null,
+              "length": 19,
+              "scale": 0,
+              "position": 5,
+              "optional": false,
+              "autoIncremented": true,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            }
+          ],
+          "attributes": [ ⑩
+            {
+              "customAttribute": "attributeValue"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+schema change topic으로 생성된 메시지의 필드에 대한 설명
+|번호|필드명|설명|
+|-|-|-|
+|1|ts_ms|커넥터가 이벤트를 처리한 시간을 표시하는 선택적 필드. 시간은 Kafka Connect 작업을 실행하는 JVM의 시스템 시계가 기반. 원본 객체에서 ts_ms는 데이터베이스가 변경된 시간을 나타냄. `payload.source.ts_ms` 값과 `payload.ts_ms` 값을 비교하면 원본 데이터베이스 업데이트와 Debezium 사이의 지연 확인 가능|
+|2|databaseName<br>schemaName|변경 사항이 포함된 데이터베이스와 스키마를 식별|
+|3|ddl|SQL Server 커넥터에는 항상 null. 다른 커넥터의 경우 이 필드에는 스키마 변경을 담당하는 DDL을 포함. 이 DDL은 SQL Server 커넥터에 사용 불가.|
+|4|tableChanges|DDL 명령으로 생성된 schema 변경을 포함하는 하나 이상의 항목 배열|
+|5|type|스키마 변화의 종류. 다음 값 중 하나. <br><br>* CREATE- 테이블 생성. <br>* ALTER- 테이블 수정 <br>* DROP- 테이블 삭제.|
+|6|id|생성, 변경 또는 삭제된 테이블의 전체 식별자|
+|7|table|변경 사항이 적용된 후의 테이블 메타데이터|
+|8|primaryKeyColumnNames|테이블의 기본 키를 구성하는 열 목록|
+|9|columns|변경된 테이블의 각 열에 대한 메타데이터|
+|10|attributes|각 테이블 변경에 대한 사용자 정의 속성 메타데이터|
+
+커넥터가 schema change topic으로 보내는 메시지에서 Key는 스키마 변경이 포함된 데이터베이스의 이름.
+다음 예에서는 payload필드에 키가 포함되어 있음.
+
+```json
+{
+  "schema": {
+    "type": "struct",
+    "fields": [
+      {
+        "type": "string",
+        "optional": false,
+        "field": "databaseName"
+      }
+    ],
+    "optional": false,
+    "name": "io.debezium.connector.sqlserver.SchemaChangeKey",
+    "version": 1
+  },
+  "payload": {
+    "databaseName": "MyDB"
+  }
+}
+```
+
+스키마 변경 순서
+
+1. 해당 테이블의 cdc 중지
+2. 테이블 필드 속성 변경
+3. 해당 테이블 cdc 시작
+
+```json
+{
+  "schema": {
+    ...
+  },
+  "payload": {
+    "source": {
+      "version": "2.4.0.Final",
+      "connector": "sqlserver",
+      "name": "mydb",
+      "ts_ms": 1698305296337,
+      "snapshot": "false",
+      "db": "MyDB",
+      "sequence": null,
+      "schema": "dbo",
+      "table": "Customer",
+      "change_lsn": "00000047:00005f88:0002",
+      "commit_lsn": "00000047:00005f88:0005",
+      "event_serial_no": 1
+    },
+    "ts_ms": 1698311514501,
+    "databaseName": "MyDB",
+    "schemaName": "dbo",
+    "ddl": "N/A",
+    "tableChanges": [
+      {
+        "type": "ALTER",
+        "id": "\"MyDB\".\"dbo\".\"Customer\"",
+        "table": {
+          "defaultCharsetName": null,
+          "primaryKeyColumnNames": [
+            "IDX"
+          ],
+          "columns": [
+            {
+              "name": "CustomerName",
+              "jdbcType": 12,
+              "nativeType": null,
+              "typeName": "varchar",
+              "typeExpression": "varchar",
+              "charsetName": null,
+              "length": 20,
+              "scale": null,
+              "position": 1,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "Age",
+              "jdbcType": 4,
+              "nativeType": null,
+              "typeName": "int",
+              "typeExpression": "int",
+              "charsetName": null,
+              "length": 10,
+              "scale": 0,
+              "position": 2,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "CustomerAddress",
+              "jdbcType": 12,
+              "nativeType": null,
+              "typeName": "varchar",
+              "typeExpression": "varchar",
+              "charsetName": null,
+              "length": 200,
+              "scale": null,
+              "position": 3,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "Salary",
+              "jdbcType": 3,
+              "nativeType": null,
+              "typeName": "decimal",
+              "typeExpression": "decimal",
+              "charsetName": null,
+              "length": 10,
+              "scale": 2,
+              "position": 4,
+              "optional": false,
+              "autoIncremented": false,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            },
+            {
+              "name": "IDX",
+              "jdbcType": -5,
+              "nativeType": null,
+              "typeName": "bigint identity",
+              "typeExpression": "bigint identity",
+              "charsetName": null,
+              "length": 19,
+              "scale": 0,
+              "position": 5,
+              "optional": false,
+              "autoIncremented": true,
+              "generated": false,
+              "comment": null,
+              "defaultValueExpression": null,
+              "enumValues": null
+            }
+          ],
+          "comment": null
+        }
+      }
+    ]
+  }
+}
+```
+
