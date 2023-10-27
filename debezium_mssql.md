@@ -975,7 +975,7 @@ Debezium은 다음 이벤트가 발생할 때 schema change topic에 메시지�
 
 * 테이블에 대해 CDC를 활성화.
 * 테이블에 대해 CDC를 비활성화.
-* 스키마 발전 절차 에 따라 CDC가 활성화된 테이블의 구조를 변경
+* [스키마 변경 순서](#데이터베이스-스키마-변경) 에 따라 CDC가 활성화된 테이블의 구조를 변경
 
 <u>예: SQL Server 커넥터 스키마 변경 항목으로 내보내는 메시지</u>
 
@@ -1285,3 +1285,527 @@ schema change topic으로 생성된 메시지의 필드에 대한 설명
 }
 ```
 
+#### <u>데이터 변경 이벤트</u>
+
+Debezium SQL Server 커넥터는 각 행 수준 `INSERT`, `UPDATE` 및 `DELETE` 작업에 대한 데이터 변경 이벤트를 생성.  
+각 이벤트에는 키와 값이 포함되어 있고 키와 값의 구조는 변경된 테이블에 따라 다름.
+
+Debezium과 Kafka Connect는 지속적인 이벤트 메시지 스트림을 중심으로 설계.  
+그러나 이러한 이벤트의 구조는 시간이 지남에 따라 변경될 수 있으며 이는 Consumer가 처리하기 어려울 수 있음.  
+이 문제를 해결하기 위해 각 이벤트에는 해당 콘텐츠에 대한 스키마가 포함되어 있으며,  
+스키마 레지스트리를 사용하는 경우 Consumer가 레지스트리에서 스키마를 가져오는 데 사용할 수 있는 스키마 ID가 포함되어 있음.  
+이렇게 하면 각 이벤트에 자체 포함됩니다.
+
+다음 뼈대 JSON은 변경 이벤트의 기본 네 부분을 보여줌.  
+그러나 애플리케이션에서 사용하기로 선택한 Kafka Connect 변환기를 구성하는 방법에 따라  
+변경 이벤트에서 이러한 네 부분의 표현이 결정됨.  
+필드 schema는 필드를 생성하도록 변환기를 구성한 경우에만 변경 이벤트에 포함.  
+마찬가지로, 이벤트 키와 이벤트 페이로드는 이를 생성하도록 변환기를 구성한 경우에만 변경 이벤트에 있음.  
+JSON 변환기를 사용하고 4개의 기본 변경 이벤트 부분을 모두 생성하도록 구성하는 경우 변경 이벤트의 구조는 다음과 같음.
+
+```json
+{
+ "schema": { ①
+   ...
+  },
+ "payload": { ②
+   ...
+ },
+ "schema": { ③
+   ...
+ },
+ "payload": { ④
+   ...
+ },
+}
+```
+
+변경 이벤트 기본 내용 개요
+
+|항목|필드|설명|
+|-|-|-|
+|1|schema|첫 번째 `schema`필드는 이벤트 키의 일부. 이벤트 키 `payload`부분에 무엇이 있는지 설명하는 Kafka Connect 스키마를 지정. 즉, 첫 번째 `schema`필드는 변경된 테이블에 대한 기본 키의 구조를 설명. 즉, 테이블에 기본 키가 없는 경우 고유 키를 설명. <br><br> [`message.key.columns` 커넥터 구성 속성](https://debezium.io/documentation/reference/stable/connectors/sqlserver.html#sqlserver-property-message-key-columns)을 설정하여 기본 키를 재정의할 수 있음. 이 경우 첫 번째 스키마 필드는 해당 속성으로 식별되는 키의 구조를 설명|
+|2|payload|첫 번째 `payload`필드는 이벤트 키의 일부. 이전 필드에서 설명한 구조를 가지며 `schema`변경된 행에 대한 키를 포함.|
+|3|schema|두 번째 `schema`필드는 이벤트 값의 일부. 이벤트 값 `payload` 부분에 무엇이 있는지 설명하는 Kafka Connect 스키마를 지정. 즉, 두 번째는 `schema`변경된 행의 구조를 설명. 일반적으로 이 스키마에는 중첩된 스키마가 포함되어 있음.|
+|4|payload|두 번째 `payload`필드는 이벤트 값의 일부. 이는 이전 필드에서 설명한 구조를 가지며 `schema` 변경된 행에 대한 실제 데이터를 포함.|
+
+기본적으로 커넥터는 변경 이벤트 레코드를 이벤트의 원래 테이블과 이름이 동일한 topic으로 스트리밍함.  
+자세한 내용은 [주제 이름을 참조](#topic-names-토픽-이름)
+
+> [!WARNING]
+> SQL Server 커넥터는 모든 Kafka Connect 스키마 이름이 Avro 스키마 이름 형식을 준수하는지 확인함. 이는 논리 서버 이름이 라틴 문자나 밑줄(즉, az, AZ 또는 _)로 시작해야 함을 의미. 논리 서버 이름의 나머지 문자와 데이터베이스 및 테이블 이름의 각 문자는 라틴 문자, 숫자 또는 밑줄(즉, az, AZ, 0-9 또는 \_)이어야 하며 유효하지 않은 문자가 있으면 밑줄 문자로 대체.
+>
+> 논리 서버 이름, 데이터베이스 이름 또는 테이블 이름에 잘못된 문자가 포함되어 있고 이름을 서로 구별하는 유일한 문자가 잘못되어 밑줄로 바뀌는 경우 예기치 않은 충돌이 발생할 수 있음.
+
+##### 이벤트 키 변경
+
+변경 이벤트의 키에는 변경된 테이블의 키와 변경된 행의 실제 키에 대한 스키마를 포함. 스키마와 해당 페이로드에는 커넥터가 이벤트를 생성할 당시 변경된 테이블의 기본 키(또는 고유 키 제약 조건)의 각 열에 대한 필드를 포함.
+
+테이블에 대한 변경 이벤트 키의 예가 이어지는 다음 `customers` 테이블을 확인.
+
+*예시 테이블*
+
+```sql
+CREATE TABLE MyDB.dbo.Customer (
+  CustomerName varchar(20) NOT NULL,
+  Age int NOT NULL,
+  CustomerAddress varchar(200) NOT NULL,
+  Salary decimal(10,2) NOT NULL,
+  IDX bigint IDENTITY(1,1) NOT NULL PRIMARY KEY
+);
+```
+
+##### 변경 이벤트 키 예시
+
+`customers` 테이블 변경 사항을 캡처하는 모든 변경 이벤트에는 동일한 이벤트 키 스키마가 있음.  
+`customers` 테이블에 이전 정의가 있는 한 `customers` 테이블에 대한 변경 사항을 캡처하는 모든 변경 이벤트는  
+`JSON`에서 다음과 같은 키 구조를 가짐.
+
+```json
+{
+  "schema": { ①
+    "type": "struct",
+    "fields": [ ②
+      {
+        "type": "int64",
+        "optional": false,
+        "field": "IDX"
+      }
+    ],
+    "optional": false, ③
+    "name": "mydb.MyDB.dbo.Customer.Key" ④
+  },
+  "payload": { ⑤
+    "IDX": 2
+  }
+}
+```
+
+*변경 이벤트 키 설명*
+
+|항목|필드|설명|
+|-|-|-|
+|1|schema||
+|2|fields||
+|3|optional||
+|4|mydb.MyDB.dbo.Customer.Key||
+|5|paload||
+
+> [!NOTE]
+> `column.exclude.list`및 `column.include.list` 커넥터 구성 속성을 사용하면 해당 테이블 열의 하위 집합만 캡처할 수 있지만  
+> 기본 키 또는 고유 키의 모든 열은 항상 이벤트 키를 포함.
+
+> [!WARNING]
+> 테이블에 기본 키 또는 고유 키가 없으면 변경 이벤트의 키는 null.  
+> 당연하게 기본 키 또는 고유 키 제약 조건이 없는 테이블의 행은 고유하게 식별할 수 없음.
+
+##### 이벤트 값 변경
+
+변경 이벤트의 값은 키보다 조금 더 복잡함. 키와 마찬가지로 값에도 `schema` 섹션과 `payload` 섹션이 있음.  
+`schema` 섹션에는 중첩된 필드를 포함하여 `payload` 섹션의 `Envelop` 구조를 설명하는 스키마를 포함.  
+데이터를 생성, 업데이트 또는 삭제하는 작업에 대한 변경 이벤트는 모두 `envelop` 구조의 `payload` 값를 갖습니다.
+
+변경 이벤트 키의 예를 보여주기 위해 사용된 것과 동일한 샘플 테이블을 고려해보세요.
+
+*예시 테이블*
+
+```sql
+CREATE TABLE MyDB.dbo.Customer (
+  CustomerName varchar(20) NOT NULL,
+  Age int NOT NULL,
+  CustomerAddress varchar(200) NOT NULL,
+  Salary decimal(10,2) NOT NULL,
+  IDX bigint IDENTITY(1,1) NOT NULL PRIMARY KEY
+);
+```
+
+이 테이블의 변경 이벤트의 값 부분은 각 이벤트 유형으로 설명됨.
+
+다음 예에서는 `customers` 테이블에 데이터를 생성하는 작업에 대해 커넥터가 생성하는 변경 이벤트의 값 부분을 보여줌.
+
+```json
+{
+  "schema": { ①
+    "type": "struct",
+    "fields": [
+      {
+        "type": "struct",
+        "fields": [
+          {
+            "type": "string",
+            "optional": false,
+            "field": "CustomerName"
+          },
+          {
+            "type": "int32",
+            "optional": false,
+            "field": "Age"
+          },
+          {
+            "type": "string",
+            "optional": false,
+            "field": "CustomerAddress"
+          },
+          {
+            "type": "bytes",
+            "optional": false,
+            "name": "org.apache.kafka.connect.data.Decimal",
+            "version": 1,
+            "parameters": {
+              "scale": "2",
+              "connect.decimal.precision": "10"
+            },
+            "field": "Salary"
+          },
+          {
+            "type": "int64",
+            "optional": false,
+            "field": "IDX"
+          }
+        ],
+        "optional": true,
+        "name": "mydb.MyDB.dbo.Customer.Value", ②
+        "field": "before"
+      },
+      {
+        "type": "struct",
+        "fields": [
+          {
+            "type": "string",
+            "optional": false,
+            "field": "CustomerName"
+          },
+          {
+            "type": "int32",
+            "optional": false,
+            "field": "Age"
+          },
+          {
+            "type": "string",
+            "optional": false,
+            "field": "CustomerAddress"
+          },
+          {
+            "type": "bytes",
+            "optional": false,
+            "name": "org.apache.kafka.connect.data.Decimal",
+            "version": 1,
+            "parameters": {
+              "scale": "2",
+              "connect.decimal.precision": "10"
+            },
+            "field": "Salary"
+          },
+          {
+            "type": "int64",
+            "optional": false,
+            "field": "IDX"
+          }
+        ],
+        "optional": true,
+        "name": "mydb.MyDB.dbo.Customer.Value",
+        "field": "after"
+      },
+      {
+        "type": "struct",
+        "fields": [
+          {
+            "type": "string",
+            "optional": false,
+            "field": "version"
+          },
+          {
+            "type": "string",
+            "optional": false,
+            "field": "connector"
+          },
+          {
+            "type": "string",
+            "optional": false,
+            "field": "name"
+          },
+          {
+            "type": "int64",
+            "optional": false,
+            "field": "ts_ms"
+          },
+          {
+            "type": "string",
+            "optional": true,
+            "name": "io.debezium.data.Enum",
+            "version": 1,
+            "parameters": {
+              "allowed": "true,last,false,incremental"
+            },
+            "default": "false",
+            "field": "snapshot"
+          },
+          {
+            "type": "string",
+            "optional": false,
+            "field": "db"
+          },
+          {
+            "type": "string",
+            "optional": true,
+            "field": "sequence"
+          },
+          {
+            "type": "string",
+            "optional": false,
+            "field": "schema"
+          },
+          {
+            "type": "string",
+            "optional": false,
+            "field": "table"
+          },
+          {
+            "type": "string",
+            "optional": true,
+            "field": "change_lsn"
+          },
+          {
+            "type": "string",
+            "optional": true,
+            "field": "commit_lsn"
+          },
+          {
+            "type": "int64",
+            "optional": true,
+            "field": "event_serial_no"
+          }
+        ],
+        "optional": false,
+        "name": "io.debezium.connector.sqlserver.Source", ③
+        "field": "source"
+      },
+      {
+        "type": "string",
+        "optional": false,
+        "field": "op"
+      },
+      {
+        "type": "int64",
+        "optional": true,
+        "field": "ts_ms"
+      },
+      {
+        "type": "struct",
+        "fields": [
+          {
+            "type": "string",
+            "optional": false,
+            "field": "id"
+          },
+          {
+            "type": "int64",
+            "optional": false,
+            "field": "total_order"
+          },
+          {
+            "type": "int64",
+            "optional": false,
+            "field": "data_collection_order"
+          }
+        ],
+        "optional": true,
+        "name": "event.block",
+        "version": 1,
+        "field": "transaction"
+      }
+    ],
+    "optional": false,
+    "name": "mydb.MyDB.dbo.Customer.Envelope", ④
+    "version": 1
+  },
+  "payload": { ⑤ 
+    "before": null, ⑥
+    "after": { ⑦
+      "CustomerName": "john doe",
+      "Age": 33,
+      "CustomerAddress": "New York",
+      "Salary": "AvrwgA==",
+      "IDX": 9
+    },
+    "source": { ⑧
+      "version": "2.4.0.Final",
+      "connector": "sqlserver",
+      "name": "mydb",
+      "ts_ms": 1698390150850,
+      "snapshot": "false",
+      "db": "MyDB",
+      "sequence": null,
+      "schema": "dbo",
+      "table": "Customer",
+      "change_lsn": "0000004c:000007d0:0003",
+      "commit_lsn": "0000004c:000007d0:0004",
+      "event_serial_no": 1
+    },
+    "op": "c", ⑨
+    "ts_ms": 1698390156393, ⑩
+    "transaction": null
+  }
+}
+```
+
+이벤트 생성 값 필드 에 대한 설명
+
+|항목|필드|설명|
+|-|-|-|
+|1|schema|payload 값의 구조를 설명하는 스키마.변경 이벤트의 값 스키마는 커넥터가 특정 테이블에 대해 생성하는 모든 변경 이벤트에서 동일.|
+|2|name|스키마 섹션에서 각 필드 이름은 payload 값에 있는 필드의 스키마를 지정.<br><br>`mydb.MyDB.dbo.Customer.Value`는 페이로드의 이전 및 이후 필드에 대한 스키마. 이 스키마는 customer 테이블에만 적용.<br><br>이전 및 이후 필드의 스키마 이름은 `logicalName.databaseschemaName.tableName.Value` 형식으로 되어 있어 스키마 이름이 데이터베이스에서 고유함.이는 Avro 변환기를 사용할 때 각 논리 소스의 각 테이블에 대한 결과 Avro 스키마가 자체적인 발전과 기록을 가짐을 의미.|
+|3|name|`io.debezium.connector.sqlserver.Source`는 `payload`내의 `source` 필드의 스키마.이 스키마는 SQL Server 커넥터에만 적용. 커넥터는 생성하는 모든 이벤트에 이를 사용.|
+|4|name|`mydb.MyDB.dbo.Customer.Envelope`는 `payload`의 전체 구조에 대한 스키마. 여기서 `mydb`은 커넥터 이름, `MyDB.dbo`는 데이터베이스 스키마 이름, `Customer`은 테이블입니다.|
+|5|payload|변경 이벤트가 제공하는 실제 값.<br><br>이벤트의 JSON 표현은 이벤트가 설명하는 행보다 훨씬 더 큰 것처럼 보일 수 있음. 이는 JSON 표현에 메시지의 스키마와 페이로드 부분이 포함되어야 하기 때문. 그러나 [Avro 변환기](https://debezium.io/documentation/reference/stable/configuration/avro.html#avro-serialization)를 사용하면 커넥터가 Kafka Topic으로 스트리밍하는 메시지의 크기를 크게 줄일 수 있음.|
+|6|before|이벤트가 발생하기 전의 행 상태를 지정하는 선택적 필드.<br>이 예에서와 같이 `op`필드가 생성을 의미하는 `c`인 경우 이 변경 이벤트는 새 콘텐츠에 대한 것이므로 `before`필드는 null.|
+|7|after|이벤트가 발생한 후의 행 상태를 지정하는 선택적 필드.<br>이 예에서 `after` 필드에는 새 행의 `CustomerName`, `Age`, `CustomerAddress`, `Salary` 및 `IDX` 열 값을 포함.|
+|8|source|이벤트의 소스 메타데이터를 설명하는 필수 필드. 이 필드에는 이벤트의 출처, 이벤트가 발생한 순서 및 이벤트가 동일한 트랜잭션의 일부인지 여부와 관련하여 이 이벤트를 다른 이벤트와 비교하는 데 사용할 수 있는 정보를 포함. 소스 메타데이터에는 다음을 포함<br><br>* Debezium 버전<br>* 커넥터 유형 및 이름<br>* 데이터베이스 및 스키마 이름<br>* 데이터베이스가 변경된 시점의 타임 스탬프<br>* 이벤트가 스냅샷의 일부인 경우<br>* 새 행을 포함하는 테이블의 이름<br>* 서버 로그 오프셋|
+|9|op|커넥터가 이벤트를 생성하게 만든 작업 유형을 설명하는 필수 문자열. 이 예에서 는 `c` 작업이 행을 생성했음을 표현. 유효한 값<br><br>* c = Create / Insert<br>* u = Update<br>* d = Delete<br>* r = 읽기 (스냅샷에만 적용)|
+|10|ts_ms|커넥터가 이벤트를 처리한 시간을 표시하는 선택적 필드. Event Message Envelop에서 시간은 Kafka Connect 작업을 실행하는 JVM 안에서의 시스템 시간을 기반으로 함.<br><br>소스 객체에서 ts_ms는 데이터베이스에 변경 사항이 커밋된 시간. `payload.source.ts_ms` 값과 `payload.ts_ms` 값을 비교하면 소스 데이터베이스 업데이트와 Debezium 사이의 지연을 확인 가능. `(1698390156393 -1698390150850 = 5543)`|
+
+---
+
+### 데이터베이스 스키마 변경
+
+SQL Server 테이블에 대해 변경 데이터 캡처가 활성화되고 테이블에 변경이 발생하면 이벤트 레코드가 서버의 캡처 테이블에 저장됨. 예를 들어 새 열을 추가하여 원본 테이블의 구조를 변경하면 해당 변경 사항이 변경 테이블에 동적으로 반영되지 않음. 캡처 테이블이 오래된 스키마를 계속 사용하는 한 Debezium 커넥터는 테이블에 대한 데이터 변경 이벤트를 올바르게 내보낼 수 없음. 커넥터가 변경 이벤트 처리를 재개할 수 있도록 캡처 테이블을 새로 고치려면 별도 추가 작업이 필요.
+
+SQL Server에서 CDC가 구현되는 방식으로 인해 Debezium을 사용하여 캡처 테이블의 업데이트 가능.  
+캡처 테이블을 새로 고치려면 높은 권한을 가진 SQL Server 데이터베이스 운영자가 되어야 함.  
+Debezium 사용자는 SQL Server 데이터베이스 운영자와 작업을 조정하여 스키마 새로 고침을 완료하고 Kafka 항목으로 스트리밍을 복원해야 함.
+
+스키마 변경 후 다음 방법 중 하나를 사용하여 캡처 테이블의 업데이트 가능
+
+* [오프라인 스키마 업데이트](#오프라인-스키마-업데이트)에서는 캡처 테이블을 업데이트하기 전에 Debezium 커넥터를 중지해야 합니다.
+* [온라인 스키마 업데이트](#온라인-스키마-업데이트)는 Debezium 커넥터가 실행되는 동안 캡처 테이블을 업데이트할 수 있습니다.
+
+각 유형의 절차를 사용하는 데는 장점과 단점이 있음.
+
+> [!WARNING]
+> 온라인 업데이트 방법을 사용하든 오프라인 업데이트 방법을 사용하든 동일한 원본 테이블에 후속 스키마 업데이트를 적용하기 전에  
+> 전체 스키마 업데이트 프로세스를 완료해야 합니다.  
+> 가장 좋은 방법은 모든 DDL을 단일 배치로 실행하여 프로시저가 한 번만 실행될 수 있도록 하는 것입니다.
+
+> [!NOTE]
+> CDC가 활성화된 원본 테이블에서는 일부 스키마 변경 사항이 지원되지 않음.  
+> 예를 들어 테이블에서 CDC가 활성화된 경우 SQL Server에서는 해당 열 중 하나의 이름을 바꾸거나  
+> 열 유형을 변경한 경우 테이블의 스키마 변경을 허용하지 않음.
+
+> [!NOTE]
+> 원본 테이블의 열을 `NULL`에서 `NOT NULL`로 또는 그 반대로 변경한 후에는  
+> 새 캡처 인스턴스를 생성할 때까지 SQL Server 커넥터가 변경된 정보를 올바르게 캡처할 수 없음.  
+> 
+> 열 지정을 변경한 후 새 캡처 테이블을 작성하지 않으면  
+> 커넥터가 생성하는 변경 이벤트 레코드가 해당 열이 선택사항인지 여부를 올바르게 나타내지 않음.  
+> 즉, 이전에 선택 사항(또는 `NULL`)으로 정의된 열은 현재는 `NOT NULL`으로 정의되어 있음에도 불구하고 계속해서 선택 사항으로 정의됨.  
+> 마찬가지로, 필수(`NOT NULL`)로 정의된 열은 이제 `NULL`로 정의되어 있어도 해당 지정을 유지.
+
+> [!NOTE]
+> 함수를 사용하여 테이블 이름을 바꾼 후에 sp_rename는 커넥터가 다시 시작될 때까지 이전 원본 테이블 이름으로 변경 사항을 계속 내보냄.  
+> 커넥터를 다시 시작하면 새 원본 테이블 이름 아래에 변경 사항을 표시.
+
+#### <u>오프라인 스키마 업데이트</u>
+
+오프라인 스키마 업데이트는 캡처 테이블을 업데이트하는 가장 안전한 방법을 제공합니다. 그러나 고가용성이 필요한 애플리케이션에서는 오프라인 업데이트를 사용하지 못할 수도 있습니다.
+
+전제조건
+
+* CDC가 활성화된 SQL Server 테이블의 스키마에 업데이트가 커밋됨.
+* 높은 권한을 가진 SQL Server 데이터베이스 운영자.
+
+절차
+
+1. 데이터베이스를 업데이트하는 애플리케이션을 일시중단.
+2. Debezium 커넥터가 스트리밍되지 않은 모든 변경 이벤트 레코드를 스트리밍할 때까지 기다림.
+3. Debezium 커넥터를 중지.
+4. 원본 테이블 스키마에 모든 변경 사항을 적용.
+5. @capture_instance 매개 변수에 고유한 값이 있는 sys.sp_cdc_enable_table 프로시저를 사용하여  
+   업데이트 원본 테이블에 대한 새 캡처 테이블을 생성.
+6. 1단계에서 일시 중단한 애플리케이션을 재개.
+7. Debezium 커넥터를 시작.
+8. Debezium 커넥터가 새 캡처 테이블에서 스트리밍을 시작한 후  
+   매개변수 @capture_instance가 이전 캡처 인스턴스 이름으로 설정된 sys.sp_cdc_disable_table 저장 프로시저를 실행하여 이전 캡처 테이블을 삭제.
+
+#### <u>온라인 스키마 업데이트</u>
+
+온라인 스키마 업데이트를 완료하는 절차는 오프라인 스키마 업데이트를 실행하는 절차보다 간단하며 애플리케이션 및 데이터 처리에 다운타임이 필요 없이 완료 가능.  
+그러나 온라인 스키마 업데이트를 사용하면 원본 데이터베이스에서 스키마를 업데이트한 후 새 캡처 인스턴스를 생성하기 전에 잠재적인 처리 공백이 발생할 수 있음.  
+해당 간격 동안 변경 이벤트는 변경 테이블의 이전 인스턴스에 의해 계속 캡처되며 이전 테이블에 저장된 변경 데이터는 이전 스키마의 구조를 유지.  
+따라서 원본 테이블에 새 열을 추가한 경우 새 캡처 테이블이 준비되기 전에 생성된 변경 이벤트에는 새 열에 대한 필드가 포함되지 않음.  
+애플리케이션이 이러한 전환 기간(처리 공백)을 허용하지 않는 경우 오프라인 스키마 업데이트 절차를 사용하는 것으로 추천함.
+
+전제조건
+
+* CDC가 활성화된 SQL Server 테이블의 스키마에 업데이트가 커밋.
+* 높은 권한을 가진 SQL Server 데이터베이스 운영자.
+
+절차
+
+1. 소스 테이블 스키마에 모든 변경 사항을 적용.
+2. 매개변수 @capture_instance 에 대한 고유한 값을 사용하여 sys.sp_cdc_enable_table 저장 프로시저를 실행하여 업데이트 소스 테이블에 대한 새 캡처 테이블을 생성.
+3. Debezium이 새 캡처 테이블에서 스트리밍을 시작하면 매개 변수 @capture_instance를 이전 캡처 인스턴스 이름으로 설정하여 sys.sp_cdc_disable_table저장 프로시저를 실행하여 이전 캡처 테이블 삭제 가능.
+
+<u>예: 데이터베이스 스키마 변경 후 온라인 스키마 업데이트 실행</u>
+
+온라인 스키마 업데이트를 보여주기 위해 SQL Server 기반 Debezium 튜토리얼을 배포
+
+다음 예는 customers 테이블에 phone_number 컬럼이 추가됨.
+
+1. 다음 쿼리를 실행하여 `customers` 테이블에 `phone_number` 컬럼을 추가함.
+
+```sql
+ALTER TABLE customers ADD phone_number VARCHAR(32);
+```
+
+2. `sys.sp_cdc_enable_table` 저장 프로시저를 실행하여 새 캡쳐 인스턴스 생성.
+
+```sql
+EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'customers', @role_name = NULL, @supports_net_changes = 0, @capture_instance = 'dbo_customers_v2';
+GO
+```
+
+3. 다음 쿼리를 실행하여 테이블 `customers`에 새 데이터를 추가.
+
+```sql
+INSERT INTO customers(first_name,last_name,email,phone_number) VALUES ('John','Doe','john.doe@example.com', '+1-555-123456');
+GO
+```
+
+Kafka Connect 로그는 다음 메시지와 유사한 항목을 통해 구성 업데이트에 대해 보고합니다.
+
+``` bash
+connect_1    | 2019-01-17 10:11:14,924 INFO   ||  Multiple capture instances present for the same table: Capture instance "dbo_customers" [sourceTableId=testDB.dbo.customers, changeTableId=testDB.cdc.dbo_customers_CT, startLsn=00000024:00000d98:0036, changeTableObjectId=1525580473, stopLsn=00000025:00000ef8:0048] and Capture instance "dbo_customers_v2" [sourceTableId=testDB.dbo.customers, changeTableId=testDB.cdc.dbo_customers_v2_CT, startLsn=00000025:00000ef8:0048, changeTableObjectId=1749581271, stopLsn=NULL]   [io.debezium.connector.sqlserver.SqlServerStreamingChangeEventSource]
+connect_1    | 2019-01-17 10:11:14,924 INFO   ||  Schema will be changed for ChangeTable [captureInstance=dbo_customers_v2, sourceTableId=testDB.dbo.customers, changeTableId=testDB.cdc.dbo_customers_v2_CT, startLsn=00000025:00000ef8:0048, changeTableObjectId=1749581271, stopLsn=NULL]   [io.debezium.connector.sqlserver.SqlServerStreamingChangeEventSource]
+...
+connect_1    | 2019-01-17 10:11:33,719 INFO   ||  Migrating schema to ChangeTable [captureInstance=dbo_customers_v2, sourceTableId=testDB.dbo.customers, changeTableId=testDB.cdc.dbo_customers_v2_CT, startLsn=00000025:00000ef8:0048, changeTableObjectId=1749581271, stopLsn=NULL]   [io.debezium.connector.sqlserver.SqlServerStreamingChangeEventSource]
+```
+
+`phone_number` 필드가 스키마에 추가되고 해당 값이 Kafka topic에 기록된 메시지에 표시됨.
+
+```json
+...
+     {
+        "type": "string",
+        "optional": true,
+        "field": "phone_number"
+     }
+...
+    "after": {
+      "id": 1005,
+      "first_name": "John",
+      "last_name": "Doe",
+      "email": "john.doe@example.com",
+      "phone_number": "+1-555-123456"
+    },
+```
+
+4. 저장 프로시저 `sys.sp_cdc_disable_table`를 실행하여 이전 캡쳐 인스턴스를 삭제함.
+
+```sql
+EXEC sys.sp_cdc_disable_table @source_schema = 'dbo', @source_name = 'dbo_customers', @capture_instance = 'dbo_customers';
+GO
+```
+
+### 모니터링
+
+JMX를 통한 방법은 별도 Debizium 모니터링 설명서 참조.
