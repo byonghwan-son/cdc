@@ -1421,6 +1421,8 @@ CREATE TABLE MyDB.dbo.Customer (
 
 이 테이블의 변경 이벤트의 값 부분은 각 이벤트 유형으로 설명됨.
 
+###### 이벤트 만들기
+
 다음 예에서는 `customers` 테이블에 데이터를 생성하는 작업에 대해 커넥터가 생성하는 변경 이벤트의 값 부분을 보여줌.
 
 ```json
@@ -1660,9 +1662,396 @@ CREATE TABLE MyDB.dbo.Customer (
 |5|payload|변경 이벤트가 제공하는 실제 값.<br><br>이벤트의 JSON 표현은 이벤트가 설명하는 행보다 훨씬 더 큰 것처럼 보일 수 있음. 이는 JSON 표현에 메시지의 스키마와 페이로드 부분이 포함되어야 하기 때문. 그러나 [Avro 변환기](https://debezium.io/documentation/reference/stable/configuration/avro.html#avro-serialization)를 사용하면 커넥터가 Kafka Topic으로 스트리밍하는 메시지의 크기를 크게 줄일 수 있음.|
 |6|before|이벤트가 발생하기 전의 행 상태를 지정하는 선택적 필드.<br>이 예에서와 같이 `op`필드가 생성을 의미하는 `c`인 경우 이 변경 이벤트는 새 콘텐츠에 대한 것이므로 `before`필드는 null.|
 |7|after|이벤트가 발생한 후의 행 상태를 지정하는 선택적 필드.<br>이 예에서 `after` 필드에는 새 행의 `CustomerName`, `Age`, `CustomerAddress`, `Salary` 및 `IDX` 열 값을 포함.|
-|8|source|이벤트의 소스 메타데이터를 설명하는 필수 필드. 이 필드에는 이벤트의 출처, 이벤트가 발생한 순서 및 이벤트가 동일한 트랜잭션의 일부인지 여부와 관련하여 이 이벤트를 다른 이벤트와 비교하는 데 사용할 수 있는 정보를 포함. 소스 메타데이터에는 다음을 포함<br><br>* Debezium 버전<br>* 커넥터 유형 및 이름<br>* 데이터베이스 및 스키마 이름<br>* 데이터베이스가 변경된 시점의 타임 스탬프<br>* 이벤트가 스냅샷의 일부인 경우<br>* 새 행을 포함하는 테이블의 이름<br>* 서버 로그 오프셋|
+|8|source|이벤트의 소스 메타데이터를 설명하는 필수 필드. 이 필드에는 이벤트의 출처, 이벤트가 발생한 순서 및 이벤트가 동일한 트랜잭션의 일부인지 여부와 관련하여 이 이벤트를 다른 이벤트와 비교하는 데 사용할 수 있는 정보를 포함. 소스 메타데이터에는 다음을 포함.<br><br>* Debezium 버전<br>* 커넥터 유형 및 이름<br>* 데이터베이스 및 스키마 이름<br>* 데이터베이스가 변경된 시점의 타임 스탬프<br>* 이벤트가 스냅샷의 일부인 경우<br>* 새 행을 포함하는 테이블의 이름<br>* 서버 로그 오프셋|
 |9|op|커넥터가 이벤트를 생성하게 만든 작업 유형을 설명하는 필수 문자열. 이 예에서 는 `c` 작업이 행을 생성했음을 표현. 유효한 값<br><br>* c = Create / Insert<br>* u = Update<br>* d = Delete<br>* r = 읽기 (스냅샷에만 적용)|
 |10|ts_ms|커넥터가 이벤트를 처리한 시간을 표시하는 선택적 필드. Event Message Envelop에서 시간은 Kafka Connect 작업을 실행하는 JVM 안에서의 시스템 시간을 기반으로 함.<br><br>소스 객체에서 ts_ms는 데이터베이스에 변경 사항이 커밋된 시간. `payload.source.ts_ms` 값과 `payload.ts_ms` 값을 비교하면 소스 데이터베이스 업데이트와 Debezium 사이의 지연을 확인 가능. `(1698390156393 -1698390150850 = 5543)`|
+
+###### 업데이트 이벤트
+
+샘플 `Customer` 테이블의 업데이트에 대한 변경 이벤트 값은 해당 테이블에 대한 생성 이벤트와 동일한 스키마를 가짐. 마찬가지로 이벤트 값의 페이로드도 동일한 구조를 가짐.  
+그러나 페이로드의 업데이트 이벤트에는 다른 값이 포함되어 있습니다. 다음은 `Customer` 테이블의 업데이트에 대해 커넥터가 생성하는 이벤트의 변경 이벤트 값의 예.
+
+```json
+{
+  "schema": { ... },
+  "payload": {
+    "before": { ①
+      "CustomerName": "손주원",
+      "Age": 15,
+      "CustomerAddress": "해운대구",
+      "Salary": "AA==",
+      "IDX": 8
+    },
+    "after": { ②
+      "CustomerName": "손주원",
+      "Age": 15,
+      "CustomerAddress": "해운대구",
+      "Salary": "A+g=",
+      "IDX": 8
+    },
+    "source": { ③
+      "version": "2.4.0.Final",
+      "connector": "sqlserver",
+      "name": "mydb",
+      "ts_ms": 1698369375027,
+      "snapshot": "false",
+      "db": "MyDB",
+      "sequence": null,
+      "schema": "dbo",
+      "table": "Customer",
+      "change_lsn": "0000004a:000014e8:0002",
+      "commit_lsn": "0000004a:000014e8:0003",
+      "event_serial_no": 2
+    },
+    "op": "u", ④
+    "ts_ms": 1698369376558, ⑤
+    "transaction": null
+  }
+}
+```
+
+|항목|필드|설명|
+|-|-|-|
+|1|before|이벤트가 발생하기 전 행의 상태를 지정하는 선택적 필드. 업데이트 이벤트 값에서 이전 필드에는 각 테이블 열에 대한 필드와 데이터베이스 커밋 전에 해당 열에 있었던 값을 포함. 이 예에서 `Salary` 값은 `AA==`.<br>(Decimal type의 경우 소숫점 단위로 인해 일반 숫자가 아닌 인코딩된 형태로 표시)|
+|2|after|이벤트가 발생한 후 행의 상태를 지정하는 선택적 필드. 이전 및 이후 구조를 비교하여 이 행에 대한 업데이트가 무엇인지 확인 가능. 이 예에서 `Salary` 값은 이제 `A+g=`.<br>(Decimal type의 경우 소숫점 단위로 인해 일반 숫자가 아닌 인코딩된 형태로 표시)|
+|3|source|이벤트의 소스 메타데이터를 설명하는 필수 필드. 이 필드에는 이벤트의 출처, 이벤트가 발생한 순서 및 이벤트가 동일한 트랜잭션의 일부인지 여부와 관련하여 이 이벤트를 다른 이벤트와 비교하는 데 사용할 수 있는 정보를 포함. 소스 메타데이터에는 다음을 포함.<br><br>* Debezium 버전<br>* 커넥터 유형 및 이름<br>* 데이터베이스 및 스키마 이름<br>* 데이터베이스가 변경된 시점의 타임 스탬프<br>* 이벤트가 스냅샷의 일부인 경우<br>* 새 행을 포함하는 테이블의 이름<br>* 서버 로그 오프셋<br><br>`event_serial_no` 필드는 커밋이 동일하고 LSN이 변경된 이벤트를 구분함. 이 필드의 값이 1이 아닌 경우의 일반적인 상황은 아래와 같음.<br><br>* 업데이트는 SQL Server의 CDC 변경 테이블에 두 개의 이벤트를 생성하므로 업데이트 이벤트의 값은 2로 설정됨.([자세한 내용은 소스 설명서 참조](https://learn.microsoft.com/en-us/sql/relational-databases/system-tables/cdc-capture-instance-ct-transact-sql?view=sql-server-2017)). 첫 번째 이벤트에는 이전 값을 포함하고 두 번째 이벤트에는 새 값을 포함. 커넥터는 첫 번째 이벤트의 값을 사용하여 두 번째 이벤트를 생성. 커넥터는 첫 번째 이벤트를 삭제.<br>* 기본 키가 업데이트되면 SQL Server는 두 가지 이벤트를 보냄. 이전 기본 키 값이 있는 레코드를 제거하는 삭제 이벤트와 새 기본 키 값이 있는 레코드를 추가하는 생성 이벤트. 두 작업 모두 동일한 커밋을 공유하고 LSN을 변경하며 해당 이벤트 번호는 각각 1과 2임.|
+|4|op|커넥터가 이벤트를 생성하게 만든 작업 유형을 설명하는 필수 문자열. 이 예에서 는 `u` 작업이 행을 변경했음을 표현. 유효한 값<br><br>* c = Create / Insert<br>* u = Update<br>* d = Delete<br>* r = 읽기 (스냅샷에만 적용)|
+|5|ts_ms|커넥터가 이벤트를 처리한 시간을 표시하는 선택적 필드. Event Message Envelop에서 시간은 Kafka Connect 작업을 실행하는 JVM 안에서의 시스템 시간을 기반으로 함.<br><br>소스 객체에서 ts_ms는 데이터베이스에 변경 사항이 커밋된 시간. `payload.source.ts_ms` 값과 `payload.ts_ms` 값을 비교하면 소스 데이터베이스 업데이트와 Debezium 사이의 지연을 확인 가능. `(1698369376558 -1698369375027 = 1531)`|
+
+> [!NOTE]
+> 행의 기본/고유 키에 대한 열을 업데이트하면 행의 키 값이 변경됨.  
+> 키가 변경되면 Debezium은 행에 대한 이전 키를 사용하는 삭제 이벤트와 삭제 표시 이벤트, 행에 대한 새 키를 사용하는 생성 이벤트 등 세 가지 이벤트를 출력함.
+
+###### 이벤트 삭제
+
+삭제 이벤트의 값은 동일한 테이블에 대한 생성 및 업데이트 이벤트와 동일한 스키마 부분을 갖습니다. 샘플 Customer 테이블에 대한 삭제 이벤트의 페이로드 부분은 다음과 같습니다.
+
+```json
+{
+  "schema": { ... },
+  "payload": {
+    "before": {
+      "CustomerName": "홍순남",
+      "Age": 40,
+      "CustomerAddress": "연제구",
+      "Salary": "D0JA",
+      "IDX": 6
+    },
+    "after": null,
+    "source": {
+      "version": "2.4.0.Final",
+      "connector": "sqlserver",
+      "name": "mydb",
+      "ts_ms": 1698305296337,
+      "snapshot": "false",
+      "db": "MyDB",
+      "sequence": null,
+      "schema": "dbo",
+      "table": "Customer",
+      "change_lsn": "00000047:00005f88:0002",
+      "commit_lsn": "00000047:00005f88:0005",
+      "event_serial_no": 1
+    },
+    "op": "d",
+    "ts_ms": 1698305297092,
+    "transaction": null
+  }
+}
+```
+
+|항목|필드|설명|
+|-|-|-|
+|1|before|이벤트가 발생하기 전 행의 상태를 지정하는 선택적 필드. 삭제 이벤트 값에서 이전 필드에는 데이터베이스 커밋으로 삭제되기 전 행에 있던 값을 포함.|
+|2|after|이벤트가 발생한 후 행의 상태를 지정하는 선택적 필드. 삭제 이벤트 값에서 after 필드는 null이며 이는 행이 더 이상 존재하지 않음을 나타냄.|
+|3|source|이벤트의 소스 메타데이터를 설명하는 필수 필드. 삭제 이벤트 값에서 소스 필드 구조는 동일한 테이블에 대한 생성 및 업데이트 이벤트와 동일. 많은 소스 필드 값도 동일. 삭제 이벤트 값에서 ts_ms 및 pos 필드 값과 기타 값이 변경되었을 수 있음. 그러나 삭제 이벤트 값의 소스 필드는 동일한 메타데이터를 제공.<br><br>* Debezium 버전<br>* 커넥터 유형 및 이름<br>* 데이터베이스 및 스키마 이름<br>* 데이터베이스가 변경된 시점의 타임 스탬프<br>* 이벤트가 스냅샷의 일부인 경우<br>* 새 행을 포함하는 테이블의 이름<br>* 서버 로그 오프셋|
+|4|op|커넥터가 이벤트를 생성하게 만든 작업 유형을 설명하는 필수 문자열. 이 예에서 는 `d` 작업이 행을 삭제했음을 표현. 유효한 값<br><br>* c = Create / Insert<br>* u = Update<br>* d = Delete<br>* r = 읽기 (스냅샷에만 적용)|
+|5|ts_ms|커넥터가 이벤트를 처리한 시간을 표시하는 선택적 필드. Event Message Envelop에서 시간은 Kafka Connect 작업을 실행하는 JVM 안에서의 시스템 시간을 기반으로 함.<br><br>소스 객체에서 ts_ms는 데이터베이스에 변경 사항이 커밋된 시간. `payload.source.ts_ms` 값과 `payload.ts_ms` 값을 비교하면 소스 데이터베이스 업데이트와 Debezium 사이의 지연을 확인 가능. `(1698369376558 -1698369375027 = 1531)`|
+
+SQL Server 커넥터 이벤트는 Kafka 로그 압축 과 함께 작동하도록 설계됨. 로그 압축을 사용하면 모든 키에 대해 최소한 최신 메시지가 유지되는 한 일부 오래된 메시지를 제거 가능. 이를 통해 Kafka는 토픽에 완전한 데이터 세트가 포함되어 있고 키 기반 상태를 다시 로드하는 데 사용될 수 있도록 하면서 저장 공간을 최소화 함.
+
+##### 삭제표시 이벤트
+
+행이 삭제되면 Kafka가 동일한 키를 가진 모든 이전 메시지를 제거할 수 있기 때문에 삭제 이벤트 값은 로그 압축과 함께 계속 작동함. 그러나 Kafka가 동일한 키를 가진 모든 메시지를 제거하려면 메시지 값이 `null`이어야 함. 이를 가능하게 하기 위해 Debezium의 SQL Server 커넥터가 삭제 이벤트를 생성한 후 커넥터는 동일한 키이지만 `null`값을 갖는 특수 삭제 표시 이벤트를 생성.
+
+#### 트랜잭션 메타 데이터
+
+Debezium은 트랜잭션 경계를 나타내고 데이터 변경 이벤트 메시지를 강화하는 이벤트를 생성
+
+> [!NOTE] Debezium이 트랜잭션 메타데이터를 수신하는 시점에 대한 제한  
+> Debezium은 커넥터를 배포한 후에 발생하는 트랜잭션에 대해서만 메타데이터를 등록하고 수신.  
+> 커넥터를 배포하기 전에 발생하는 트랜잭션에 대한 메타데이터는 사용할 수 없음.
+
+데이터베이스 트랜잭션은 BEGIN 및 END 키워드 사이에 포함된 명령문 블록으로 표시. Debezium은 모든 트랜잭션에서 BEGIN 및 END 구분 기호에 대한 트랜잭션 경계 이벤트를 생성. 거래 경계 이벤트에는 다음 필드를 포함.
+
+***status***  
+　`BEGIN` 또는 `END`
+
+***id***  
+　고유한 transaction 식별자(문자열)
+
+***ts_ms***  
+　데이터 소스에서 트랜잭션 경계 이벤트(`BEGIN` 또는 `END` 이벤트)가 발생한 시간.  
+　데이터 소스가 Debezium에 이벤트 시간을 제공하지 않는 경우 필드는 대신 Debezium이 이벤트를 처리하는 시간을 표시.
+
+***event_count(`END` 이벤트용)***  
+　트랜잭션에서 발생하는 총 이벤트 수
+
+***data_collections(`END` 이벤트용)***  
+　데이터 컬렉션에서 발생한 변경 사항에 대해 커넥터가 내보내는 이벤트 수를 나타내는 `data_collection` 및 `event_count` 요소 쌍의 배열입니다.
+
+> [!WARNING]
+> Debezium에서는 트랜잭션이 언제 종료되었는지 확실하게 식별할 수 있는 방법이 없음.  
+> 따라서 트랜잭션 END 마커는 다른 트랜잭션의 첫 번째 이벤트가 도착한 후에만 방출됨.  
+> 이로 인해 트래픽이 적은 시스템의 경우 END 마커 전달의 지연 발생.
+
+일반적인 트랜잭션 경계 메시지의 예
+
+```json
+{
+  "status": "BEGIN",
+  "id": "00000025:00000d08:0025",
+  "ts_ms": 1486500577125,
+  "event_count": null,
+  "data_collections": null
+}
+
+{
+  "status": "END",
+  "id": "00000025:00000d08:0025",
+  "ts_ms": 1486500577691,
+  "event_count": 2,
+  "data_collections": [
+    {
+      "data_collection": "testDB.dbo.testDB.tablea",
+      "event_count": 1
+    },
+    {
+      "data_collection": "testDB.dbo.testDB.tableb",
+      "event_count": 1
+    }
+  ]
+}
+```
+
+`topic.transaction` 옵션을 통해 재정의되지 않는 한 트랜잭션 이벤트는 `<topic.prefix>`.transaction이라는 topic에 기록됨.
+
+##### 변경 데이터 이벤트 강화(change data event enrichment)
+
+트랜잭션 메타데이터가 활성화되면 데이터 메시지 `Envelope`은 새 `transaction` 필드로 강화됩니다.  
+이 필드는 필드 복합 형식으로 모든 이벤트에 대한 정보를 제공합니다.
+
+***id***  
+　고유한 transaction 식별자(문자열)
+
+***total_order***  
+　트랜잭션에 의해 발생한 모든 이벤트 중 해당 이벤트의 절대 위치
+
+***data_collection_order***  
+　트랜잭션에서 발생한 모든 이벤트 중 해당 이벤트의 `data collection` 위치
+
+일반적인 메세지 모양
+
+```json
+{
+  "before": null,
+  "after": {
+    "pk": "2",
+    "aa": "1"
+  },
+  "source": {
+...
+  },
+  "op": "c",
+  "ts_ms": "1580390884335",
+  "transaction": {
+    "id": "00000025:00000d08:0025",
+    "total_order": "1",
+    "data_collection_order": "1"
+  }
+}
+```
+
+#### 데이터 타입 매핑
+
+Debezium SQL Server 커넥터는 행이 존재하는 테이블과 유사하게 구성된 이벤트를 생성하여 테이블 행 데이터의 변경 사항을 나타냄. 각 이벤트에는 행의 열 값을 나타내는 필드가 포함되어 있음. 이벤트가 작업에 대한 열 값을 나타내는 방식은 열의 SQL 데이터 유형에 따라 다름. 이 경우 커넥터는 각 SQL Server 데이터 유형의 필드를 *리터럴* 유형과 *의미* 유형 모두에 매핑함.
+
+커넥터는 SQL Server 데이터 유형을 *리터럴* 및 *의미* 유형 모두에 매핑 가능.
+
+*리터럴 타입*  
+　Kafka Connect 스키마 유형(`INT8, INT16, INT32, INT64, FLOAT32, FLOAT64, BOOLEAN, STRING, BYTES, ARRAY, MAP 및 STRUCT`)을 사용하여 값을 문자 그대로 표현하는 방법을 설명.
+
+*Semantic(의미) 타입*  
+　Kafka Connect 스키마가 필드에 대한 Kafka Connect 스키마 이름을 사용하여 필드의 *의미*(*meaning*)를 캡처하는 방법을 설명.
+
+기본 데이터 유형 변환이 요구 사항을 충족하지 않는 경우 커넥터에 대한 [사용자 지정 변환기](https://debezium.io/documentation/reference/stable/development/converters.html#custom-converters)를 만들 수 있습니다.
+
+##### 기본 타입
+
+커넥터가 기본 SQL Server 데이터 유형을 매핑하는 방법
+
+|SQL SERVER 데이터 타입|리터럴 타입(스키마 타입)|의미 타입(스키마 이름) 및 메모|
+|-|-|-|
+|BIT|BOOLEAN|해당사항 없음|
+|TINYINT|INT16|해당사항 없음|
+|SMALLINT|INT16|해당사항 없음|
+|INT|INT32|해당사항 없음|
+|BIGINT|INT64|해당사항 없음|
+|REAL|FLOAT32|해당사항 없음|
+|FLOAT[(N)]|FLOAT64|해당사항 없음|
+|CHAR[(N)]|STRING|해당사항 없음|
+|VARCHAR[(N)]|STRING|해당사항 없음|
+|TEXT|STRING|해당사항 없음|
+|NCHAR[(N)]|STRING|해당사항 없음|
+|NVARCHAR[(N)]|STRING|해당사항 없음|
+|NTEXT|STRING|해당사항 없음|
+|XML|STRING|io.debezium.data.Xml<br><br>XML 문서의 문자열 표현 포함|
+|DATETIMEOFFSET[(P)]|STRING|io.debezium.time.ZonedTimestamp<br><br>시간대 정보가 포함된 타임스탬프의 문자열 표현<br>(여기서 시간대는 GMT임)|
+
+다른 데이터 타입 매핑은 다음 섹션에서 설명함.
+
+열의 기본값이 있는 경우 해당 필드의 Kafka Connect 스키마에 전파. 변경 메시지에는 필드의 기본값이 포함되므로(명시적인 열 값이 제공되지 않은 경우) 스키마에서 기본값을 가져올 필요가 거의 없음. Confluent 스키마 레지스트리와 함께 [Avro를 직렬화 형식으로 사용](https://debezium.io/documentation/reference/stable/configuration/avro.html)할 때 기본값을 전달하면 호환성 규칙을 충족하는 데 도움이 됨.
+
+##### 시간 타입
+
+SQL Server의 `DATETIMEOFFSET` 데이터 타입(표준 시간대 정보 포함) 외에 다른 시간형 타입은 `time.precision.mode` 구성 속성의 값에 따라 달라짐. `time.precision.mode` 구성 속성이 `adaptive`(기본값)으로 설정된 경우, 커넥터는 이벤트가 데이터베이스의 값을 정확하게 나타내도록 열의 데이터 유형 정의를 기반으로 시간형 타입에 대한 리터럴 유형 및 의미 유형을 결정함.
+
+|SQL Server 데이터 유형|리터럴 유형(스키마 유형)|의미 유형(스키마 이름) 및 메모 (에포크-epoch 1970.1.1)|
+|-|-|-|
+|DATE|INT32|io.debezium.time.Date<br><br>에포크 이후의 일수.|
+|TIME(0), TIME(1), TIME(2),TIME(3)|INT32|io.debezium.time.Time<br><br>자정 이후의 밀리초 수를 나타내며 시간대 정보는 포함하지 않음.|
+|TIME(4), TIME(5),TIME(6)|INT64|io.debezium.time.MicroTime<br><br>자정 이후의 마이크로초 수를 나타내며 시간대 정보는 포함하지 않음.|
+|TIME(7)|INT64|io.debezium.time.NanoTime<br><br>자정 이후의 나노초 수를 나타내며 시간대 정보는 포함하지 않음.|
+|DATETIME|INT64|io.debezium.time.Timestamp<br><br>에포크 이후의 밀리초 수를 나타내며 시간대 정보는 포함하지 않음.|
+|SMALLDATETIME|INT64|io.debezium.time.Timestamp<br><br>에포크 이후의 밀리초 수를 나타내며 시간대 정보는 포함하지 않음.|
+|DATETIME2(0), DATETIME2(1), DATETIME2(2),DATETIME2(3)|INT64|io.debezium.time.Timestamp<br><br>에포크 이후의 밀리초 수를 나타내며 시간대 정보는 포함하지 않음.|
+|DATETIME2(4), DATETIME2(5),DATETIME2(6)|INT64|io.debezium.time.MicroTimestamp<br><br>epoch 이후의 마이크로초 수를 나타내며 시간대 정보는 포함하지 않음.|
+|DATETIME2(7)|INT64|io.debezium.time.NanoTimestamp<br><br>에포크 이후의 나노초 수를 나타내며 시간대 정보는 포함하지 않음.|
+
+`time.precision.mode` 구성 속성이 `connect`로 설정된 경우 커넥터는 사전 정의된 Kafka Connect 논리 타입을 사용. 이는 소비자가 내장된 Kafka Connect 논리 유형에 대해서만 알고 있고 가변 정밀도 시간 값을 처리할 수 없는 경우에 유용함. 반면에 SQL Server는 10분의 1마이크로초의 정밀도를 지원하므로 `connect`시간 정밀도 모드를 사용하는 커넥터에서 생성된 이벤트는 데이터베이스 열의 소수 *초 정밀도 값*이 3보다 큰 경우 **정밀도가 손실됨**.
+
+|SQL Server 데이터 유형|리터럴 유형(스키마 유형)|의미 유형(스키마 이름) 및 메모|
+|-|-|-|
+|DATE|INT32|org.apache.kafka.connect.data.Date<br><br>epoch 이후의 일수|
+|TIME([P])|INT64|org.apache.kafka.connect.data.Time<br><br>자정 이후의 시간(밀리초)을 나타내며 시간대 정보는 포함하지 않음. SQL Server에서는 P가 0-7 범위에 있도록 허용하여 최대 10분의 1마이크로초 정밀도를 저장. 하지만 이 모드에서는 P > 3일 때 정밀도를 손실.(`second` 아래 최대 3자리)|
+|DATETIME|INT64|org.apache.kafka.connect.data.Timestamp<br><br>epoch 이후의 밀리초 수를 나타내며 시간대 정보를 포함하지 않음.|
+|SMALLDATETIME|INT64|org.apache.kafka.connect.data.Timestamp<br><br>epoch 이후의 밀리초 수를 나타내며 시간대 정보는 포함하지 않음.|
+|DATETIME2|INT64|org.apache.kafka.connect.data.Timestamp<br><br>epoch 이후의 밀리초 수를 나타내며 시간대 정보를 포함하지 않음. SQL Server에서는 P가 0-7 범위에 있도록 허용하여 최대 10분의 1마이크로초 정밀도를 저장. 하지만 이 모드에서는 P > 3일 때 정밀도를 손실.(`second` 아래 최대 3자리)|
+
+###### timestamp valuesㄴ
+
+`DATETIME`, `SMALLDATETIME` 및 `DATETIME2` 유형은 시간대 정보가 없는 타임스탬프를 표시. 이러한 열은 UTC를 기반으로 하는 동등한 Kafka Connect 값으로 변환됨. 예를 들어 `DATETIME2` 값 "2018-06-20 15:13:16.945104"는 "1529507596945104" 값을 가진 `io.debezium.time.MicroTimestamp`로 표시.
+
+Kafka Connect 및 Debezium을 실행하는 JVM의 시간대는 이 변환에 영향을 미치지 않음.
+
+##### Decimal Values
+
+Debezium 커넥터는 [`decimal.handling.mode` connector 구성 속성](https://debezium.io/documentation/reference/stable/connectors/sqlserver.html#sqlserver-property-decimal-handling-mode)의 설정에 따라 소수를 처리.
+
+*`decimal.handling.mode=precise`*
+
+|SQL Server Type|Literal type<br>(schema type)|Semantic type(schema name)|
+|-|-|-|
+|NUMERI[(P[,S])]|BYTES|org.apache.kafka.connect.data.Decimal<br>scale 스키마 매개변수에는 소수점이 이동한 자릿수를 나타내는 정수를 포함.|
+|DECIMAL[(P[,S])]|BYTES|org.apache.kafka.connect.data.Decimal<br>scale 스키마 매개변수에는 소수점이 이동한 자릿수를 나타내는 정수를 포함.|
+|SMALLMONEY|BYTES|org.apache.kafka.connect.data.Decimal<br>scale 스키마 매개변수에는 소수점이 이동한 자릿수를 나타내는 정수를 포함.|
+|MONEY|BYTES|org.apache.kafka.connect.data.Decimal<br>scale 스키마 매개변수에는 소수점이 이동한 자릿수를 나타내는 정수를 포함.|
+
+*`decimal.handling.mode=double`*
+
+|SQL Server Type|Literal type|Semantic type|
+|-|-|-|
+|NUMERIC[(M[,D])]|FLOAT64|n/a - 해당사항 없음|
+|DECIMAL[(M[,D])]|FLOAT64|n/a - 해당사항 없음|
+|SMALLMONEY[(M[,D])]|FLOAT64|n/a - 해당사항 없음|
+|MONEY[(M[,D])]|FLOAT64|n/a - 해당사항 없음|
+
+*`decimal.handling.mode=string`*
+
+|SQL Server Type|Literal type|Semantic type|
+|-|-|-|
+|NUMERIC[(M[,D])]|STRING|n/a - 해당사항 없음|
+|DECIMAL[(M[,D])]|STRING|n/a - 해당사항 없음|
+|SMALLMONEY[(M[,D])]|STRING|n/a - 해당사항 없음|
+|MONEY[(M[,D])]|STRING|n/a - 해당사항 없음|
+
+## [Setting up SQL Server](CDC환경설정.md)
+
+### SQL Server 캡처 작업 에이전트 구성이 서버 로드 및 대기 시간에 미치는 영향
+
+데이터베이스 관리자가 원본 테이블에 대한 변경 데이터 캡처를 활성화하면 캡처 작업 에이전트가 실행되기 시작.  
+에이전트는 트랜잭션 로그에서 새 변경 이벤트 레코드를 읽고 해당 이벤트 레코드를 변경 데이터 테이블에 복제.  
+원본 테이블에 변경 내용이 커밋되는 시간과 해당 변경 테이블에 변경 내용이 나타나는 시간 사이에는 항상 짧은 대기 시간 간격이 존재.  
+이 대기 시간 간격은 소스 테이블에서 변경 사항이 발생하는 시점과 Debezium이 Apache Kafka로 스트리밍할 수 있게 되는 시점 사이의 간격.
+
+이상적으로는 데이터 변경에 신속하게 응답해야 하는 애플리케이션의 경우 원본 테이블과 변경 테이블 간의 긴밀한 동기화를 유지하는 것이 좋음.  
+변경 이벤트를 최대한 빠르게 지속적으로 처리하기 위해 캡처 에이전트를 실행하면 처리량이 증가하고 대기 시간이 줄어들 수 있음.  
+즉, 이벤트가 발생한 후 가능한 한 빨리, 거의 실시간으로 새 이벤트 레코드로 변경 테이블을 채울 수 있다고 상상할 수 있음.  
+그러나 반드시 그런 것은 아님. 보다 즉각적인 동기화를 추구하면 성능 저하가 발생.  
+캡처 작업 에이전트가 데이터베이스에 새 이벤트 레코드를 쿼리할 때마다 데이터베이스 호스트의 CPU 로드가 증가.  
+서버에 대한 추가 로드는 전체 데이터베이스 성능에 부정적인 영향을 미칠 수 있으며  
+특히 데이터베이스 사용이 가장 많은 시간 동안 트랜잭션 효율성을 감소시킬 수 있음.
+
+데이터베이스가 서버가 더 이상 캡처 에이전트의 활동 수준을 지원할 수 없는 지점에 도달하는지 알 수 있도록  
+데이터베이스 메트릭을 모니터링하는 것이 중요.  
+성능 문제가 발견되면 허용 가능한 수준의 대기 시간으로 데이터베이스 호스트의 전체 CPU 로드 균형을 맞추는 데 도움이 되도록  
+수정할 수 있는 SQL Server 캡처 에이전트 설정이 있음.
+
+### SQL Server 캡처 작업 에이전트 구성 매개변수
+
+SQL Server에서 캡처 작업 에이전트의 동작을 제어하는 매개 변수는 SQL Server 테이블 msdb.dbo.cdc_jobs에 정의.  
+캡처 작업 에이전트를 실행하는 동안 성능 문제가 발생하는 경우 sys.sp_cdc_change_job 저장 프로시저를 실행하고  
+새 값을 제공하여 CPU 로드를 줄이도록 캡처 작업 설정을 조정 해야 함.
+
+> [!NOTE]  
+> SQL Server 캡처 작업 에이전트 매개 변수를 구성하는 방법에 대한 구체적인 지침은 이 문서의 범위를 벗어납니다.
+
+다음 매개변수는 Debezium SQL Server 커넥터와 함께 사용할 캡처 에이전트 동작을 수정하는 데 가장 중요.
+
+* ***pollinginterval***
+  * 캡처 에이전트가 로그 스캔 주기 사이에 대기하는 시간(초)을 지정.
+  * 값이 높을수록 데이터베이스 호스트의 로드가 줄어들고 대기 시간이 늘어남.
+  * 값 0은 검색 사이에 대기하지 않음을 지정.
+  * 기본값은 5.
+
+* ***maxtrans***
+  * 각 로그 스캔 주기 동안 처리할 최대 트랜잭션 수를 지정.  
+    캡처 작업은 지정된 수의 트랜잭션을 처리한 후 다음 검색이 시작되기 전에  
+    pollinginterval이 지정하는 시간 동안 일시 중지.
+  * 값이 낮을수록 데이터베이스 호스트의 로드가 줄어들고 대기 시간이 늘어남.
+  * 기본값은 500.
+
+* ***maxscans***
+  * 데이터베이스 트랜잭션 로그의 전체 내용을 캡처하기 위해 캡처 작업이 시도할 수 있는 검색 주기 수에 대한 제한을 지정.  
+    Continuous 매개변수가 1로 설정된 경우 작업은 검색을 다시 시작하기 전에 pollinginterval이 지정하는 시간 동안 일시 중지됩니다.
+  * 값이 낮을수록 데이터베이스 호스트의 로드가 줄어들고 대기 시간이 늘어남.
+  * 기본값은 10.
+
+## 전개
+
+### 카프카 커넥터 전개 방법 참조
+
+### 커넥터 속성
+
+Debezium SQL Server 커넥터에는 애플리케이션에 적합한 커넥터 동작을 달성하는 데 사용할 수 있는 다양한 구성 속성이 존재.  
+많은 속성이 기본값을 가짐.
+
+속성에 대한 정보 구성
+
+* [필수 커넥터 구성 속성](#필수-debezium-sql-server-커넥터-구성-속성)
+* [고급 커넥터 구성 속성](#고급-sql-server-커넥터-구성-속성)
+  * Debezium이 데이터베이스 스키마 기록 항목에서 읽는 이벤트를 처리하는 방법을 제어하는 ​[​데이터베이스 스키마 기록 커넥터 구성 속성](#debezium-sql-server-커넥터-데이터베이스-스키마-기록-구성-속성)
+  * [Pass-through 데이터베이스 스키마 기록 속성](#생산자-및-소비자-클라이언트-구성을-위한-pass-through-데이터베이스-스키마-기록-속성)
+* [데이터베이스 드라이버 의 동작을 제어하는 Pass-through 데이터베이스 드라이버 속성](#debezium-sql-server-커넥터-pass-through-데이터베이스-드라이버-구성-속성)
+
+#### 필수 Debezium SQL Server 커넥터 구성 속성
+
+#### 고급 SQL Server 커넥터 구성 속성
+
+#### Debezium SQL Server 커넥터 데이터베이스 스키마 기록 구성 속성
+
+##### 생산자 및 소비자 클라이언트 구성을 위한 Pass-through 데이터베이스 스키마 기록 속성
+
+#### Debezium SQL Server 커넥터 Pass-through 데이터베이스 드라이버 구성 속성
 
 ---
 
