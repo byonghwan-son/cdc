@@ -1937,7 +1937,7 @@ SQL Server의 `DATETIMEOFFSET` 데이터 타입(표준 시간대 정보 포함) 
 |SMALLDATETIME|INT64|org.apache.kafka.connect.data.Timestamp<br><br>epoch 이후의 밀리초 수를 나타내며 시간대 정보는 포함하지 않음.|
 |DATETIME2|INT64|org.apache.kafka.connect.data.Timestamp<br><br>epoch 이후의 밀리초 수를 나타내며 시간대 정보를 포함하지 않음. SQL Server에서는 P가 0-7 범위에 있도록 허용하여 최대 10분의 1마이크로초 정밀도를 저장. 하지만 이 모드에서는 P > 3일 때 정밀도를 손실.(`second` 아래 최대 3자리)|
 
-###### timestamp valuesㄴ
+###### timestamp values
 
 `DATETIME`, `SMALLDATETIME` 및 `DATETIME2` 유형은 시간대 정보가 없는 타임스탬프를 표시. 이러한 열은 UTC를 기반으로 하는 동등한 Kafka Connect 값으로 변환됨. 예를 들어 `DATETIME2` 값 "2018-06-20 15:13:16.945104"는 "1529507596945104" 값을 가진 `io.debezium.time.MicroTimestamp`로 표시.
 
@@ -2035,7 +2035,7 @@ SQL Server에서 캡처 작업 에이전트의 동작을 제어하는 매개 변
 Debezium SQL Server 커넥터에는 애플리케이션에 적합한 커넥터 동작을 달성하는 데 사용할 수 있는 다양한 구성 속성이 존재.  
 많은 속성이 기본값을 가짐.
 
-속성에 대한 정보 구성
+속성의 상세 내역
 
 * [필수 커넥터 구성 속성](#필수-debezium-sql-server-커넥터-구성-속성)
 * [고급 커넥터 구성 속성](#고급-sql-server-커넥터-구성-속성)
@@ -2045,13 +2045,163 @@ Debezium SQL Server 커넥터에는 애플리케이션에 적합한 커넥터 �
 
 #### 필수 Debezium SQL Server 커넥터 구성 속성
 
+기본값을 사용할 수 없는 경우 다음 구성 속성이 필요
+
+|속성|기본 값|설명|
+|-|-|-|
+|name|기본값 없음|커넥터의 고유 이름. 동일한 이름으로 다시 등록을 시도하면 실패. (이 속성은 모든 Kafka Connect 커넥터에 필요.)|
+|connector.class|기본값 없음|커넥터에 대한 Java 클래스의 이름. SQL Server 커넥터에는 항상 `io.debezium.connector.sqlserver.SqlServerConnector` 값을 사용.|
+|tasks.max|1|커넥터가 데이터베이스 인스턴스에서 데이터를 캡처하는 데 사용할 수 있는 최대 작업 수를 지정. `Database.names` 목록에 둘 이상의 요소가 포함된 경우 이 속성의 값을 목록에 있는 요소 수보다 작거나 같은 수로 늘릴 수 있음.|
+|database.hostname|기본값 없음|SQL Server 데이터베이스 서버의 IP 주소 또는 호스트 이름.|
+|database.port|1433|SQL Server 데이터베이스 서버의 정수 포트 번호.|
+|database.user|기본값 없음|SQL Server 데이터베이스 서버에 연결할 때 사용할 사용자 이름. Pass-through 속성을 사용하여 구성할 수 있는 Kerberos 인증을 사용하는 경우 생략할 수 있음.|
+|database.password|기본값 없음|SQL Server 데이터베이스 서버에 연결할 때 사용할 비밀번호.|
+|database.instance|기본값 없음|SQL Server 명명된 인스턴스의 인스턴스 이름을 지정.|
+|database.names|기본값 없음|변경 사항을 스트리밍해서 가져올 SQL Server 데이터베이스 이름을 쉼표로 구분한 목록.|
+|`topic.prefix`|기본값 없음|Debezium에서 캡처할 SQL Server 데이터베이스 서버에 대한 네임스페이스를 제공하는 Topic 접두사. 접두사는 이 커넥터에서 레코드를 수신하는 모든 Kafka Topic 이름의 접두사로 사용되므로 다른 모든 커넥터에서 고유해야 함. 데이터베이스 서버 논리적 이름에는 영숫자, 하이픈, 점, 밑줄만 사용해야 함.<br><br> * WARNING <br>이 속성의 값을 변경하지 마십시오. 이름 값을 변경하면 다시 시작한 후에 원래 Topic에 이벤트를 계속 생성하는 대신, 커넥터는 새로운 이름을 기반으로 하는 Topic에 후속 이벤트를 생성. 또한 커넥터는 해당 데이터베이스 schema history topic을 복구할 수 없음.|
+|schema.include.list|기본값 없음|선택적. 변경 사항을 캡처하려는 스키마 이름과 일치하며 쉼표로 구분된 정규식 목록. schema.include.list에 포함되지 않은 모든 스키마 이름은 변경 사항 캡처에서 제외. 기본적으로 커넥터는 모든 비시스템 스키마에 대한 변경 사항을 캡처.<br>스키마 이름과 일치시키기 위해 Debezium은 고정된 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 스키마의 전체 이름 문자열과 일치. 스키마 이름에 존재할 수 있는 하위 문자열과 일치하지 않음(?).<br>구성에 이 속성을 포함하는 경우 Schema.exclude.list 속성은 설정하지 마세요.|
+|schema.exclude.list|기본값 없음|선택적. 변경 사항을 캡처하지 않으려는 스키마 이름과 일치하며 쉼표로 구분된 정규식 목록. schema.exclude.list에 이름이 포함되지 않은 모든 스키마에는 시스템 스키마를 제외하고 변경 사항을 캡쳐.<br>스키마 이름과 일치시키기 위해 Debezium은 고정된 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 스키마의 전체 이름 문자열과 일치. 스키마 이름에 존재할 수 있는 하위 문자열과 일치하지 않음(?).<br>구성에 이 속성을 포함하는 경우 Schema.include.list 속성을 설정하지 마세요.|
+|table.include.list|기본값 없음|선택적. Debezium에서 캡처하려는 테이블의 정규화된 테이블 식별자와 일치하며 쉼표로 구분된 정규식 목록. 기본적으로 커넥터는 지정된 스키마에 대한 모든 비시스템 테이블을 캡처. 이 속성이 설정되면 커넥터는 지정된 테이블의 변경 사항만 캡처. 각 식별자는 `schemaName.tableName`(`dbo.customers`) 형식.<br>테이블 이름과 일치시키기 위해 Debezium은 고정된 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 테이블의 전체 이름 문자열과 일치. 테이블 이름에 존재할 수 있는 하위 문자열과 일치하지 않습니다(?).<br>구성에 이 속성을 포함하는 경우 table.exclude.list 속성도 설정하지 마세요.|
+|table.exclude.list|기본값 없음|선택적. 캡처에서 제외하려는 테이블의 정규화된 테이블 식별자와 일치하며 쉼표로 구분된 정규식 목록. Debezium은 table.exclude.list에 포함되지 않은 모든 테이블을 캡처. 각 식별자는 `SchemaName.tableName`(dbo.customers) 형식.<br>테이블 이름과 일치시키기 위해 Debezium은 고정된 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 테이블의 전체 이름 문자열과 일치. 테이블 이름에 존재할 수 있는 하위 문자열과 일치하지 않습니다(?).<br>구성에 이 속성을 포함하는 경우 table.include.list 속성도 설정하지 마세요.|
+|column.include.list|빈 문자열|선택적. 변경 이벤트 메시지 값에 포함되어야 하는 열의 정규화된 이름과 일치하며 쉼표로 구분된 정규식 목록. 열의 정규화된 이름은 `SchemaName.tableName.columnName` 형식. 기본 키 열은 값에 포함되지 않더라도 항상 이벤트 키를 포함됨.<br>열 이름과 일치시키기 위해 Debezium은 고정 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 열의 전체 이름 문자열과 일치. 열 이름에 존재할 수 있는 하위 문자열과 일치하지 않습니다.(?)<br>구성에 이 속성을 포함하는 경우 column.exclude.list 속성도 설정하지 마세요.|
+|column.exclude.list|빈 문자열|선택적. 변경 이벤트 메시지 값에서 제외해야 하는 열의 정규화된 이름과 일치하며 쉼표로 구분된 정규식 목록. 열의 정규화된 이름은 `SchemaName.tableName.columnName` 형식. 기본 키 열은 값에서 제외되는 경우에도 항상 이벤트의 키를 포함.<br>열 이름과 일치시키기 위해 Debezium은 고정 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 열의 전체 이름 문자열과 일치. 열 이름에 존재할 수 있는 하위 문자열과 일치하지 않습니다.(?)<br>구성에 이 속성을 포함하는 경우 column.include.list 속성도 설정하지 마세요.|
+|skip.messages.without.change|false|포함된 열에 변경 사항이 없을 때 게시 메시지를 건너뛸지 여부를 지정. 이는 column.include.list 또는 column.exclude.list 속성에 변경 사항이 없는 경우 기본적으로 메시지를 필터링.|
+|column.mask.hash.<br>hashAlgorithm.with.salt.salt;<br>column.mask.hash.<br>v2.hashAlgorithm.with.salt.salt|해당사항 없음|선택적. 문자 기반 열의 정규화된 이름과 일치하며 쉼표로 구분된 정규식 목록. 열의 정규화된 이름은 `<schemaName>.<tableName>.<columnName>` 형식입니다.<br>열 이름과 일치시키기 위해 Debezium은 _anchored 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 열의 전체 이름 문자열과 일치. 표현식이 열 이름에 있을 수 있는 하위 문자열과 일치하지 않습니다.(?) 결과 변경 이벤트 레코드에서 지정된 열의 값은 가명으로 대체.<br>가명은 지정된 hashAlgorithm과 솔트를 적용한 결과로 생성된 해시 값으로 구성. 사용되는 해시 함수에 따라 참조 무결성이 유지되고 열 값은 가명으로 대체. 지원되는 해시 함수는 Java 암호화 아키텍처 표준 알고리즘 이름 문서의 `MessageDigest` 섹션에서 설명함.<br><br>다음 예에서 CzQMA0cB5K는 무작위로 선택된 솔트.<br><br>`column.mask.hash.SHA-256.with.salt.CzQMA0cB5K = Inventory.orders.customerName, Inventory.shipment.customerName`<br><br>필요한 경우 가명은 열 길이에 맞게 자동으로 단축됨. 커넥터 구성에는 다양한 해시 알고리즘과 솔트를 지정하는 여러 속성을 포함.<br>사용된 해시 알고리즘, 선택한 솔트 및 실제 데이터 세트에 따라 결과 데이터 세트가 완전히 마스킹되지 않을 수 있음.<br>값이 다른 장소나 시스템에서 해시되는 경우 충실도를 보장하려면 해싱 전략 버전 2를 사용해야 함.|
+|time.precision.mode|adaptive|시간, 날짜 및 타임스탬프는 다음을 포함하여 다양한 종류의 정밀도로 표시될 수 있음. `adaptive`(default)은 데이터베이스 열 유형에 따라 밀리초, 마이크로초 또는 나노초 정밀도 값을 사용하여 데이터베이스에서 정확하게 시간 및 타임스탬프 값을 캡처. 혹은 데이터베이스와 연결된 열의 정밀도에 관계없이 밀리초 정밀도를 사용하는 Kafka Connect의 시간, 날짜 및 타임스탬프에 대한 기본 제공 표현을 사용하여 항상 시간 및 타임스탬프 값을 나타냄. 자세한 내용은 [시간 타입](#시간-타입)을 참조.|
+|decimal.handling.mode|precise|커넥터가 DECIMAL 및 NUMERIC 열의 값을 처리하는 방법을 지정.<br>정밀(기본값)은 변경 이벤트에 바이너리 형식으로 표시되는 java.math.BigDecimal 값을 사용하여 이를 정확하게 나타냄.<br>double은 double 값을 사용하여 이를 표현하므로 정밀도가 떨어질 수 있지만 사용하기가 더 쉬움.<br>string은 값을 형식화된 문자열로 인코딩합니다. 이는 사용하기 쉽지만 실제 유형에 대한 의미 정보는 손실됨.|
+|include.schema.changes|true|커넥터가 데이터베이스 서버 ID와 동일한 이름을 가진 Kafka Topic에 데이터베이스 스키마의 변경 사항을 게시해야 하는지 여부를 지정하는 부울 값. 각 스키마 변경 사항은 데이터베이스 이름이 포함된 키와 스키마 업데이트를 설명하는 JSON 구조인 값으로 기록됨. 이는 커넥터가 내부적으로 데이터베이스 스키마 기록을 기록하는 방식과 무관함. 기본값은 true.|
+|tombstones.on.delete|true|삭제 이벤트 다음에 삭제 표시 이벤트가 뒤따르는지 여부를 제어.<br><br>true - 삭제 작업은 삭제 이벤트와 후속 삭제 표시 이벤트로 표시<br><br>false - 삭제 이벤트만 발생.<br><br>소스 레코드가 삭제된 후 Tombstone 이벤트를 내보내면(기본 동작) Kafka는 Topic에 대해 로그 압축이 활성화된 경우 삭제된 행의 키와 관련된 모든 이벤트를 완전히 삭제할 수 있음.|
+|column.truncate.to.`length`.chars|해당사항 없음|선택적. 문자 기반 열의 정규화된 이름과 일치하며 쉼표로 구분된 정규식 목록. 속성 이름의 길이로 지정된 문자 수를 초과하는 경우 열 집합의 데이터를 자르려면 이 속성을 설정. 길이를 양의 정수 값으로 설정하십시오(예: column.truncate.to.`20`.chars).<br>열의 정규화된 이름은 `<schemaName>.<tableName>.<columnName>` 형식을 따름. 열 이름과 일치시키기 위해 Debezium은 고정 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 열의 전체 이름 문자열과 일치. 표현식이 열 이름에 있을 수 있는 하위 문자열과 일치하지 않습니다.(?)<br>단일 구성에서 길이가 다른 여러 속성을 지정할 수 있습니다.|
+|column.mask.with.`length`.chars|해당 사항 없음.<br>열의 정규화된 이름은<br> `schemaName.tableName.columnName`<br>형식|선택적. 문자 기반 열의 정규화된 이름과 일치하며 쉼표로 구분된 정규식 목록. 예를 들어 민감한 데이터가 포함된 경우 커넥터가 열 집합의 값을 마스킹하도록 하려면 이 속성을 설정하십시오. 지정된 열의 데이터를 속성 이름의 길이로 지정된 별표(*) 문자 수로 바꾸려면 길이를 양의 정수로 설정. 지정된 열의 데이터를 빈 문자열로 바꾸려면 길이를 0(영)으로 설정합니다.<br>열의 정규화된 이름은 `schemaName.tableName.columnName` 형식을 따름. 열 이름과 일치시키기 위해 Debezium은 고정 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 열의 전체 이름 문자열과 일치. 표현식이 열 이름에 있을 수 있는 하위 문자열과 일치하지 않습니다.<br>단일 구성에서 길이가 다른 여러 속성을 지정할 수 있음.|
+|column.propagate.source.type|해당사항 없음|선택적. 커넥터가 열 메타데이터를 나타내는 추가 매개변수를 내보내도록 하려는 열의 정규화된 이름과 일치하며 쉼표로 구분된 정규식 목록. 이 속성이 설정되면 커넥터는 이벤트 레코드의 스키마에 다음 필드를 추가.<br><br>* __debezium.source.column.type<br>* __debezium.source.column.length<br>*__debezium.source.column.scale<br><br>이러한 매개변수는 각각 열의 원래 유형 이름과 길이(가변 너비 유형의 경우)를 전파. 이 추가 데이터를 내보내도록 커넥터를 활성화하면 싱크 데이터베이스에서 특정 숫자 또는 문자 기반 열의 크기를 적절하게 조정하는 데 도움이 될 수 있음.<br><br>열의 정규화된 이름은 `schemaName.tableName.columnName` 형식을 따름. 열 이름과 일치시키기 위해 Debezium은 고정 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 열의 전체 이름 문자열과 일치. 표현식이 열 이름에 있을 수 있는 하위 문자열과 일치하지 않음.|
+|datatype.propagate.source.type|해당사항 없음|선택적. 데이터베이스의 열에 대해 정의된 데이터 유형의 완전한 이름을 지정하며 쉼표로 구분된 정규식 목록. 이 속성이 설정되면 데이터 유형이 일치하는 열에 대해 커넥터는 스키마에 다음 추가 필드를 포함하는 이벤트 레코드를 내보냄.<br><br>* __debezium.source.column.type<br>* __debezium.source.column.length<br>* __debezium.source.column.scale<br><br>이러한 매개변수는 각각 열의 원래 유형 이름과 길이(가변 너비 유형의 경우)를 전파. 이 추가 데이터를 내보내도록 커넥터를 활성화하면 싱크 데이터베이스에서 특정 숫자 또는 문자 기반 열의 크기를 적절하게 조정하는 데 도움이 될 수 있음.<br><br>열의 정규화된 이름은 `schemaName.tableName.typeName` 형식을 따름. 데이터 유형의 이름을 일치시키기 위해 Debezium은 고정된 정규식으로 지정한 정규식을 적용합니다. 즉, 지정된 표현식은 데이터 유형의 전체 이름 문자열과 일치됩니다. 표현식이 유형 이름에 존재할 수 있는 하위 문자열과 일치하지 않습니다.<br><br>SQL Server 관련 데이터 형식 이름 목록은 [SQL Server 데이터 형식 매핑](#데이터-타입-매핑)을 참조하세요.|
+|message.key.columns|해당사항 없음|커넥터가 지정된 테이블의 Kafka Topic에 게시하는 변경 이벤트 레코드에 대한 사용자 정의 메시지 키를 형성하는 데 사용하는 열을 지정하는 표현식 목록.<br><br>기본적으로 Debezium은 테이블의 기본 키 열을 내보내는 레코드의 메시지 키로 사용. 기본값 대신 또는 기본 키가 없는 테이블에 대한 키를 지정하기 위해 하나 이상의 열을 기반으로 사용자 지정 메시지 키를 구성할 수 있음.<br><br>테이블에 대한 사용자 정의 메시지 키를 설정하려면 테이블을 나열한 다음 메시지 키로 사용할 열을 나열하십시오. 각 목록 항목은 다음 형식을 사용.<br><br><완전한 자격을 갖춘_테이블 이름>:<keyColumn>,<keyColumn><br><br>여러 열 이름을 기반으로 테이블 키를 만들려면 열 이름 사이에 쉼표를 삽입하세요.<br><br>정규화된 각 테이블 이름은 다음 형식의 정규식.<br><br><스키마 이름>.<테이블 이름><br><br>속성에는 여러 테이블에 대한 항목이 포함될 수 있음. 목록에서 테이블 항목을 구분하려면 세미콜론을 사용.<br><br>다음 예에서는 Inventory.customers 및 buy.orders 테이블에 대한 메시지 키를 설정.<br><br>Inventory.customers:pk1,pk2;<br>(.*).purchaseorders:pk3,pk4<br><br>Inventory.customer 테이블의 경우 pk1 및 pk2 열이 메시지 키로 지정됨. 모든 스키마의 buyorders 테이블에 대해 pk3 및 pk4 서버 열은 메시지 키임.<br><br>사용자 정의 메시지 키를 생성하는 데 사용하는 열 수에는 제한이 없음. 그러나 고유 키를 지정하는 데 필요한 최소 개수를 사용하는 것이 가장 좋음.|
+|binary.handling.mode|bytes|다음을 포함하여 변경 이벤트에서 이진(binary, varbinary) 열이 표시되어야 하는 방법을 지정.<br>`bytes`는 이진 데이터를 바이트 배열로 표시(기본값).<br>`base64`는 이진 데이터를 base64로 인코딩된 문자열로 표시.<br>`base64-url-safe`는 이진 데이터를 base64-url-save-encoded 문자열로 표시<br>`hex`는 바이너리 데이터를 16진수 인코딩(base16) 문자열로 표시.|
+|schema.name.adjustment.mode|none|커넥터에서 사용하는 메시지 변환기와의 호환성을 위해 스키마 이름을 조정하는 방법을 지정합니다.<br><br>가능한 설정:<br>* none : 조정을 적용하지 않음.<br>* avro : Avro 유형 이름에 사용할 수 없는 문자를 밑줄로 변경.<br>* avro_unicode : Avro 유형 이름에 사용할 수 없는 밑줄이나 문자를 _uxxxx와 같은 해당 유니코드로 변경.<br>참고: _는 Java의 백슬래시와 같은 이스케이프 시퀀스|
+|field.name.adjustment.mode|없음|커넥터에서 사용하는 메시지 변환기와의 호환성을 위해 필드 이름을 조정하는 방법을 지정.<br><br>가능한 설정:<br>* none : 조정을 적용하지 않음.<br>* avro : Avro 유형 이름에 사용할 수 없는 문자를 밑줄로 변경<br>* avro_unicode : Avro 유형 이름에 사용할 수 없는 밑줄이나 문자를 _uxxxx와 같은 해당 유니코드로 변경.<br>참고: _는 Java의 백슬래시와 같은 이스케이프 시퀀스<br><br>자세한 내용은 [Avro 이름 지정](https://debezium.io/documentation/reference/stable/configuration/avro.html#avro-naming)을 참조하세요.|
+
 #### 고급 SQL Server 커넥터 구성 속성
+
+다음 고급 구성 속성에는 대부분의 상황에서 작동하는 좋은 기본값이 있으므로 커넥터 구성에서 지정할 필요가 거의 없음.  
+혹시 필요하면 [웹사이트 참조](https://debezium.io/documentation/reference/stable/connectors/sqlserver.html#sqlserver-advanced-connector-configuration-properties)
+
+|속성|기본 값|설명|
+|-|-|-|
+|converters|기본값 없음|커넥터가 사용할 수 있는 [사용자 정의 변환기](https://debezium.io/documentation/reference/stable/development/converters.html#custom-converters) 인스턴스의 기호 이름을 쉼표로 구분한 목록을 열거함. 예를 들어,<br>Isbn<br>커넥터가 사용자 정의 변환기를 사용할 수 있도록 하려면 변환기 속성을 설정해야 함.<br>커넥터에 대해 구성하는 각 변환기에 대해 변환기 인터페이스를 구현하는 클래스의 정규화된 이름을 지정하는 `.type` 속성도 추가. `.type` 속성은 다음 형식을 사용.<br><*converterSymbolicName*>.type<br>예를 들어,<br>`isbn.type: io.debezium.test.IsbnConverter`<br>구성된 변환기의 동작을 추가로 제어하려면 하나 이상의 구성 매개변수를 추가하여 변환기에 값을 전달할 수 있음. 추가 구성 매개변수를 변환기와 연관시키려면 매개변수 이름 앞에 변환기의 기호 이름을 붙이십시오. 예를 들어,<br>`isbn.schema.name: io.debezium.sqlserver.type.Isbn`|
+|snapshot.mode|*initial*|캡처된 테이블의 구조 및 선택적으로 데이터의 초기 스냅샷을 찍는 모드. 스냅샷이 완료되면 커넥터는 다시 데이터베이스의 redo 로그에서 변경 이벤트를 계속해서 읽음. 다음 값이 지원됨.<br><br>* `initial` : 캡처된 테이블의 구조 및 데이터에 대한 스냅샷을 찍음. 캡처된 테이블의 데이터에 대한 완전한 형태로 항목을 채워야 하는 경우 유용.<br>* `initial_only` : initial와 같은 구조 및 데이터의 스냅샷을 찍지만 대신 스냅샷이 완료된 후 변경사항의 스트리밍으로 전환하지 않음.<br>* `schema_only` : 캡처된 테이블의 구조에 대해서만 스냅샷을 찍음. 지금부터 발생하는 변경 사항만 topic에 전파해야 하는 경우 유용.|
+|snapshot.include.collection.list|`table.include.list`에<br>지정된 모든 테이블|스냅샷에 포함할 테이블의 정규화된 이름(`<dbName>.<schemaName>.<tableName>`)과 일치하는 선택적인 쉼표로 구분된 정규식 목록. 지정된 항목의 이름은 커넥터의 `table.include.list` 속성에 지정되어야 함. 이 속성은 커넥터의 `snapshot.mode` 속성이 `never` 이외의 값으로 설정된 경우에만 적용됨. 이 속성은 증분 스냅샷의 동작에 영향을 주지 않음. 테이블 이름과 일치시키기 위해 Debezium은 고정된 정규식으로 지정한 정규식을 적용. 즉, 지정된 표현식은 테이블의 전체 이름 문자열과 일치. 테이블 이름에 존재할 수 있는 하위 문자열과 일치하지 않음.|
+|snapshot.isolation.mode|*repeatable_read*|사용되는 트랜잭션 격리 수준과 캡처용으로 지정된 테이블을 커넥터가 잠그는 기간을 제어하는 모드. 다음 값이 지원됩니다.<br><br>* read_uncommitted<br>* read_committed<br>* repeatable_read<br>* snapshot<br>* exclusive (배타적 모드는 repeatable_read 격리 수준을 사용하지만 읽을 모든 테이블에 대해 배타적 잠금을 사용.)<br><br>snapshot, read_committed 및 read_uncommitted 모드는 초기 스냅샷 중에 다른 트랜잭션이 테이블 행을 업데이트하는 것을 방지하지 않음. Exclusive 및 Repeatable_read 모드는 동시 업데이트를 방지함.<br>모드 선택은 데이터 일관성에도 영향을 미침. 배타적 및 스냅샷 모드만 전체 일관성을 보장. 즉, 초기 스냅샷 및 스트리밍 로그는 선형적인(이어지는) 기록을 구성함. 예를 들어, Repeatable_read 및 read_committed 모드의 경우 추가된 레코드가 초기 스냅샷에 한 번, 스트리밍 단계에 한 번, 두 번 나타날 수 있음. 그럼에도 불구하고 해당 일관성 수준은 데이터 미러링에 적합해야 함. read_uncommitted의 경우 데이터 일관성이 전혀 보장되지 않음(일부 데이터가 손실되거나 손상될 수 있음).|
+|event.processing.failure.handling.mode|fail|이벤트 처리 중 커넥터가 예외에 반응하는 방법을 지정.<br> * `fail` :  Exception(문제가 있는 이벤트의 오프셋을 나타냄)이 전파되어 커넥터를 중지함.<br> * `warn` : 문제가 있는 이벤트를 건너뛰고 문제가 있는 이벤트의 오프셋이 기록됨.<br> * `skip` : 문제가 있는 이벤트를 건너뜀.|
+|poll.interval.ms|500|새 변경 이벤트가 나타날 때까지 커넥터가 각 반복 중에 기다려야 하는 시간(밀리초)을 지정하는 양의 정수 값. 기본값은 500밀리초, 즉 0.5초.|
+|max.queue.size|8192|blocking 큐가 보유할 수 있는 최대 레코드 수를 지정하는 양의 정수 값. Debezium은 데이터베이스에서 스트리밍된 이벤트를 읽을 때 이벤트를 Kafka에 쓰기 전에 blocking 대기열에 배치함. blocking 대기열은 커넥터가 Kafka에 쓸 수 있는 것보다 더 빠르게 메시지를 수집하거나 Kafka를 사용할 수 없게 되는 경우 데이터베이스에서 변경 이벤트를 읽기 위한 역압을 제공. 커넥터가 주기적으로 오프셋을 기록할 때 대기열에 보관된 이벤트는 무시. 항상 `max.queue.siz`e 값을 `max.batch.size` 값보다 크게 설정해야 함.|
+|max.queue.size.in.bytes|0|blocking 큐의 최대 볼륨을 바이트 단위로 지정하는 긴 정수 값. 기본적으로 blocking 대기열에는 볼륨 제한이 지정되지 않음. 대기열이 consume할 수 있는 바이트 수를 지정하려면 이 속성을 양의 큰 값으로 설정.<br>`max.queue.size`도 설정된 경우 대기열 크기가 두 속성 중 하나에 지정된 제한에 도달하면 대기열 쓰기를 차단함. 예를 들어 `max.queue.size=1000` 및 `max.queue.size.in.bytes=5000`을 설정한 경우 대기열에 1000개의 레코드가 포함되거나 대기열의 레코드 볼륨이 5000바이트에 도달해서 초과되면 대기열에 대한 쓰기를 차단함.|
+|max.batch.size|2048|커넥터의 각 반복 중에 처리되어야 하는 각 이벤트 배치의 최대 크기를 지정하는 양의 정수 값.|
+|heartbeat.interval.ms|0|heartbeat 메시지를 전송하는 빈도를 제어. 이 특성에는 커넥터가 heartbeat topic에 메시지를 보내는 빈도를 정의하는 간격(밀리초)을 포함. 이 속성을 사용하여 커넥터가 데이터베이스로부터 변경 이벤트를 계속 수신하고 있는지 확인할 수 있음. 또한 캡처되지 않은 테이블의 레코드만 장기간 변경되는 경우 하트비트 메시지를 활용해야 함. 이러한 상황에서 커넥터는 데이터베이스에서 로그 읽기를 진행하지만 Kafka에 변경 메시지를 내보내지 않음. 이는 오프셋 업데이트가 Kafka에 커밋되지 않음을 의미함. 이로 인해 커넥터가 다시 시작된 후 더 많은 변경 이벤트가 다시 전송될 수 있음. 하트비트 메시지를 전혀 보내지 않으려면 이 매개변수를 0으로 설정.
+기본적으로 비활성화되어 있습니다.|
+|snapshot.delay.ms|기본값 없음|커넥터가 시작된 후 스냅샷을 찍기 전에 기다려야 하는 간격(밀리초).<br>클러스터에서 여러 커넥터를 시작할 때 스냅샷 중단을 방지하는 데 사용할 수 있으며 이로 인해 커넥터 균형이 재조정될 수 있음.|
+|snapshot.fetch.size|2000|스냅샷을 생성하는 동안 각 테이블에서 한 번에 읽어야 하는 최대 행 수를 지정. 커넥터는 이 크기의 중복 배치로 테이블 내용을 읽음. 기본값은 2000.|
+|query.fetch.size|기본값 없음|지정된 쿼리로 반복해서 가져올 각 데이터베이스의 행 수를 지정. 기본값은 JDBC 드라이버의 기본 가져오기 크기.|
+|snapshot.lock.timeout.ms|10000|스냅샷을 수행할 때 테이블 잠금을 얻기 위해 기다리는 최대 시간(밀리초)을 지정하는 정수 값. 이 시간 간격 내에 테이블 잠금을 획득할 수 없으면 스냅샷을 실패함.(스냅샷 참조). `0`으로 설정하면 커넥터가 잠금을 얻을 수 없을 때 즉시 실패. 값 `-1`은 무한 대기.|
+|snapshot.select.statement.overrides|기본값 없음|스냅샷에 포함할 테이블 행을 지정. 스냅샷에 테이블 행의 하위 집합만 포함하려면 이 속성을 사용. 이 속성은 스냅샷에만 영향을 줌. 커넥터가 로그에서 읽는 이벤트에는 적용되지 않음.이 속성에는 `<schemaName>.<tableName>` 형식의 정규화된 테이블 이름이 쉼표로 구분된 목록이 포함되어 있음. 예를 들어,<br><br>`"snapshot.select.statement.overrides": "inventory.products,customers.orders"`<br><br>목록의 각 테이블에 대해 스냅샷을 생성할 때 커넥터가 테이블에서 실행할 SELECT 문을 지정하는 추가 구성 속성을 추가함. 지정된 SELECT 문은 스냅샷에 포함할 테이블 행의 하위 집합을 결정. 이 SELECT 문 속성의 이름을 지정하려면 다음 형식을 사용함.<br><br>`snapshot.select.statement.overrides.<schemaName>.<tableName>`.<br>예를 들면 `snapshot.select.statement.overrides.customers.orders`<br><br>예:<br>일시 삭제 열인 delete_flag가 포함된 Customers.orders 테이블에서 일시 삭제되지 않은 레코드만 스냅샷에 포함시키려면 다음 속성을 추가.<br><br>`"snapshot.select.statement.overrides": "customer.orders"`,<br>`"snapshot.select.statement.overrides.customer.orders": "SELECT * FROM [customers].[orders] WHERE delete_flag = 0 ORDER BY id DESC"`<br><br>결과적으로 스냅샷에서 커넥터에는 `delete_flag = 0`인 레코드만 포함.|
+|source.struct.version<br>(deprecated)|v2|CDC 이벤트의 소스 블록에 대한 스키마 버전. Debezium 0.10에는 몇 가지 중단 사항이 도입됨. 모든 커넥터에 걸쳐 노출된 구조를 통합하기 위해 소스 블록의 구조를 변경함. 이 옵션을 v1로 설정하면 이전 버전에서 사용된 구조를 생성할 수 있음. 이 설정은 권장되지 않으며 향후 Debezium 버전에서 제거될 예정.|
+|provide.transaction.metadata|false|true로 설정되면 Debezium은 트랜잭션 경계가 있는 이벤트를 생성하고 트랜잭션 메타데이터로 데이터 이벤트 Envelop을 강화.|
+|retriable.restart.connector.wait.ms|10000(10초)|재시도 가능한 오류가 발생한 후 커넥터를 다시 시작하기 전에 기다려야 하는 시간(밀리초).|
+|skipped.operations|t|스트리밍 중에 건너뛸 작업 유형의 쉼표로 구분된 목록. 작업에는 `c`(삽입/생성), `u`(업데이트), `d`(삭제), `t`(자르기), `none`(작업을 건너뛰지 않음)을 포함. 기본적으로 자르기 작업은 건너뜀.(이 커넥터에서는 생성되지 않음).|
+|signal.data.collection|기본값 없음|커넥터에 신호를 보내는 데 사용되는 데이터 컬렉션의 정규화된 이름.<br>컬렉션 이름을 지정하려면 다음 형식을 사용 : `<데이터베이스 이름>.<스키마 이름>.<테이블 이름>`|
+|signal.enabled.channels|source|커넥터에 대해 활성화된 signal 채널 이름 목록. 기본적으로 다음 채널을 사용.<br>* source<br>* kafka<br>* file<br>* jmx : 선택적으로 [사용자 정의 신호 채널](https://debezium.io/documentation/reference/stable/configuration/signalling.html#debezium-signaling-enabling-custom-signaling-channel)을 구현할 수도 있음.|
+|notification.enabled.channels|기본값 없음|커넥터에 대해 활성화된 알림 채널 이름 목록. 기본적으로 다음 채널을 사용.<br>* sink<br>* log<br>* jmx : 선택적으로 [사용자 정의 알림 채널](https://debezium.io/documentation/reference/stable/connectors/sqlserver.html#{link-notification}.adoc#debezium-notification-custom-channel)을 구현할 수도 있음.|
+|incremental.snapshot.allow.<br>schema.changes|false|증분 스냅샷 중에 스키마 변경을 허용. 활성화되면 커넥터는 증분 스냅샷 중에 스키마 변경을 감지하고 현재 청크를 다시 선택하여 DDL 잠금을 방지.<br><br>기본 키에 대한 변경은 지원되지 않으며 증분 스냅샷 중에 수행되면 잘못된 결과가 발생할 수 있습니다. 또 다른 제한 사항은 스키마 변경이 열의 기본값에만 영향을 미치는 경우 트랜잭션 로그 스트림에서 DDL이 처리될 때까지 변경 사항이 감지되지 않는다는 것. 이는 스냅샷 이벤트 값에 영향을 미치지 않지만 스냅샷 이벤트의 스키마에는 오래된 기본값이 있을 수 있음.|
+|incremental.snapshot.chunk.size|1024|증분 스냅샷 청크 중에 커넥터가 가져와서 메모리로 읽는 최대 행 수. 청크 크기를 늘리면 스냅샷이 더 큰 크기의 더 적은 수의 스냅샷 쿼리를 실행하므로 효율성이 더 높아짐. 그러나 청크 크기가 클수록 스냅샷 데이터를 버퍼링하는 데 더 많은 메모리가 필요. 특정 환경에 최상의 성능을 제공하는 값으로 청크 크기를 조정해야 함.|
+|max.iteration.transactions|0|데이터베이스의 여러 테이블에서 변경 내용을 스트리밍할 때 메모리 공간을 줄이기 위해 반복마다 사용할 최대 트랜잭션 수를 지정. 0(기본값)으로 설정하면 커넥터는 현재 최대 LSN을 변경 사항을 가져올 범위로 사용. 0보다 큰 값으로 설정되면 커넥터는 이 설정에 지정된 n번째 LSN을 변경 사항을 가져올 범위로 사용.|
+|incremental.snapshot.option.recompile|false|증분 스냅샷 중에 사용되는 모든 SELECT 문에 OPTION(RECOMPILE) 쿼리 옵션을 사용. 이는 발생할 수 있지만 쿼리 실행 빈도에 따라 원본 데이터베이스의 CPU 로드가 증가할 수 있는 매개 변수 스니핑 문제를 해결하는 데 도움이 될 수 있음.|
+|topic.naming.strategy|io.debezium.schema.<br>SchemaTopicNamingStrategy|데이터 변경, 스키마 변경, 트랜잭션, heartbeat 이벤트 등에 대한 Topic 이름을 결정하는 데 사용해야 하는 `TopicNamingStrategy 클래스의 이름`은 기본적으로 `SchemaTopicNamingStrategy`로 설정됨.|
+|topic.delimiter|`.`|주제 이름에 대한 구분 기호를 지정. 기본값은 `.`|
+|topic.cache.size|10000|bounded concurrent 해시 맵에서 Topic 이름을 보유하는 데 사용되는 크기. 이 캐시는 특정 데이터 컬렉션에 해당하는 Topic 이름을 결정하는 데 도움이 됨.|
+|topic.heartbeat.prefix|__debezium-heartbeat|커넥터가 heartbeat 메시지를 보내는 Topic의 이름을 제어. Topic 이름에는 다음 패턴이 있음.<br>`topic.heartbeat.prefix.topic.prefix`<br>예를 들어 topic 접두사가 `fulfillment`인 경우 기본 topic 이름은 `__debezium-heartbeat.fulfillment`.|
+|topic.transaction|transaction|커넥터가 트랜잭션 메타데이터 메시지를 보내는 Topic의 이름을 제어. Topic 이름에는 다음 패턴이 있음.<br>`topic.prefix.topic.transaction`<br>예를 들어 주제 접두사가 `fulfillment`인 경우 기본 주제 이름은 `fulfillment.transaction`. 자세한 내용은 [트랜잭션 메타데이터](#트랜잭션-메타-데이터)를 참조.|
+|snapshot.max.threads|1|초기 스냅샷을 수행할 때 커넥터가 사용하는 스레드 수를 지정. 병렬 초기 스냅샷을 활성화하려면 속성을 1보다 큰 값으로 설정. 병렬 초기 스냅샷에서 커넥터는 여러 테이블을 동시에 처리. 이 기능은 인큐베이팅 중.|
+|custom.metric.tags|기본값 없음|사용자 정의 메트릭 태그는 일반 이름 끝에 추가되어야 하는 MBean 객체 이름을 사용자 정의하기 위해 키-값 쌍을 허용하며, 각 키는 MBean 객체 이름에 대한 태그를 나타내며 해당 값은 해당 태그(key)의 값이 됨. 예: k1=v1,k2=v2.|
+|errors.max.retries|-1|실패하기 전 재시도 가능한 오류(예: 연결 오류)에 대한 최대 재시도 횟수.(-1 = 제한 없음, 0 = 비활성화됨, > 0 = 재시도 횟수).|
 
 #### Debezium SQL Server 커넥터 데이터베이스 스키마 기록 구성 속성
 
-##### 생산자 및 소비자 클라이언트 구성을 위한 Pass-through 데이터베이스 스키마 기록 속성
+Debezium은 커넥터가 schema history topic과 상호 작용하는 방식을 제어하는 일련의 `schema.history.internal.*` 속성을 제공
 
-#### Debezium SQL Server 커넥터 Pass-through 데이터베이스 드라이버 구성 속성
+다음 표에서는 Debezium 커넥터를 구성하기 위한 `schema.history.internal` 속성을 설명
+
+|속성|기본 값|설명|
+|-|-|-|
+|schema.history.internal.kafka.topic|기본값 없음||
+|schema.history.internal.kafka.bootstrap.servers|기본값 없음||
+|schema.history.internal.kafka.recovery.poll.interval.ms|100||
+|schema.history.internal.kafka.query.timeout.ms|3000||
+|schema.history.internal.kafka.create.timeout.ms|30000||
+|schema.history.internal.kafka.recovery.attempts|100||
+|schema.history.internal.skip.unparseable.ddl|false||
+|schema.history.internal.store.only.captured.tables.ddl|false||
+|schema.history.internal.store.only.captured.databases.ddl|false||
+
+
+##### Producer 및 Consumer 클라이언트 구성을 위한 Pass-through 데이터베이스 스키마 기록 속성
+
+Debezium은 Kafka Producer를 사용하여 데이터베이스 스키마 기록 항목에 스키마 변경 사항을 기록.  
+마찬가지로 커넥터가 시작될 때 Kafka Consumer를 사용하여 데이터베이스 스키마 기록 항목을 읽음.  
+`schema.history.internal.producer.*` 및 `schema.history.internal.consumer.*` 접두사로 시작하는 일련의 Pass-through 구성 속성에 값을 할당하여 Kafka Producer 및 Consumer 클라이언트에 대한 구성을 정의.  
+Pass-through Producer 및 Consumer 데이터베이스 스키마 기록 속성은 다음 예에 표시된 것처럼 이러한 클라이언트가 Kafka 브로커와의 연결을 보호하는 방법과 같은 다양한 동작을 제어.
+
+```properties
+schema.history.internal.producer.security.protocol=SSL
+schema.history.internal.producer.ssl.keystore.location=/var/private/ssl/kafka.server.keystore.jks
+schema.history.internal.producer.ssl.keystore.password=test1234
+schema.history.internal.producer.ssl.truststore.location=/var/private/ssl/kafka.server.truststore.jks
+schema.history.internal.producer.ssl.truststore.password=test1234
+schema.history.internal.producer.ssl.key.password=test1234
+
+schema.history.internal.consumer.security.protocol=SSL
+schema.history.internal.consumer.ssl.keystore.location=/var/private/ssl/kafka.server.keystore.jks
+schema.history.internal.consumer.ssl.keystore.password=test1234
+schema.history.internal.consumer.ssl.truststore.location=/var/private/ssl/kafka.server.truststore.jks
+schema.history.internal.consumer.ssl.truststore.password=test1234
+schema.history.internal.consumer.ssl.key.password=test1234
+```
+
+Debezium은 속성을 Kafka 클라이언트에 전달하기 전에 속성 이름에서 접두사(`schema.history.internal.producer`, `schema.history.internal.consumer`)를 제거.
+
+[Kafka Producer 구성 속성](https://kafka.apache.org/documentation.html#producerconfigs) 및 [Kafka Consumer 구성 속성](https://kafka.apache.org/documentation.html#consumerconfigs) 에 대한 자세한 내용은 Kafka 설명서를 참조.
+
+##### Debezium 커넥터 Kafka 신호 구성 속성
+
+Debezium은 커넥터가 Kafka Signal Topic과 상호 작용하는 방식을 제어하는 일련의 signal.* 속성을 제공.
+
+다음 표에서는 Kafka Signal 속성을 설명.
+
+|속성|기본값|설명|
+|-|-|-|
+|signal.kafka.topic|<topic.prefix>-signal|커넥터가 임시 신호를 모니터링하는 Kafka Topic의 이름.<br><br> * 주의 : [자동 Topic 생성](https://debezium.io/documentation/reference/stable/configuration/topic-auto-create-config.html#topic-auto-create-config)이 비활성화된 경우 필요한 신호 Topic을 수동으로 생성해야 함. 신호 순서를 유지하려면 신호 Topic이 필요. 신호 Topic에는 단일 파티션이 있어야 함.|
+|signal.kafka.groupId|kafka-signal|Kafka Consumer가 사용하는 그룹 ID의 이름.|
+|signal.kafka.bootstrap.servers|기본값 없음|커넥터가 Kafka 클러스터에 대한 초기 연결을 설정하는 데 사용하는 호스트/포트(host:port) 쌍 목록. 각 쌍은 Debezium Kafka Connect 프로세스에서 사용되는 Kafka 클러스터를 참조.|
+|signal.kafka.poll.timeout.ms|100|커넥터가 신호를 polling할 때 기다리는 최대 시간(밀리초)을 지정하는 정수 값.|
+
+##### Debezium 커넥터 통과 신호 Kafka 소비자 클라이언트 구성 속성
+
+Debezium 커넥터는 Kafka Consumer 신호의 Pass-through 구성을 제공. Pass-through 신호 속성은 `signal.consumer.*` 접두사로 시작됩니다.  
+예를 들어 커넥터는 `signal.consumer.security.protocol=SSL`과 같은 속성을 Kafka Consumer에게 전달.  
+Debezium은 속성을 Kafka 신호 Consumer에게 전달하기 전에 속성에서 접두사를 제거.
+
+##### Debezium 커넥터 싱크 알림 구성 속성
+
+다음 표에서는 `notification`속성에 대해 설명.
+
+|속성|기본값|설명|
+|-|-|-|
+|notification.sink.topic.name|기본값 없음|Debezium으로부터 알림을 받는 topic의 이름.<br>이 속성은 활성화된 알림 채널 중 하나로 `sink`를 포함하도록 `notification.enabled.channels` 속성을 구성할 때 필요.|
+
+##### Debezium SQL Server 커넥터 Pass-through 데이터베이스 드라이버 구성 속성
+
+Debezium 커넥터는 데이터베이스 드라이버의 Pass-through 구성을 제공.  
+Pass-through 데이터베이스 속성은 접두사 `driver.*`로 시작함. 예를 들어 커넥터는 `driver.foobar=false`와 같은 속성을 JDBC URL에 전달.
+
+[데이터베이스 스키마 기록 클라이언트에 대한 Pass-through 속성](#producer-및-consumer-클라이언트-구성을-위한-pass-through-데이터베이스-스키마-기록-속성)의 경우와 마찬가지로 Debezium은 속성을 데이터베이스 드라이버에 전달하기 전에 속성에서 접두사를 제거.
 
 ---
 
@@ -2070,26 +2220,26 @@ Debezium 사용자는 SQL Server 데이터베이스 운영자와 작업을 조�
 
 각 유형의 절차를 사용하는 데는 장점과 단점이 있음.
 
-> [!WARNING]
+> [!WARNING]  
 > 온라인 업데이트 방법을 사용하든 오프라인 업데이트 방법을 사용하든 동일한 원본 테이블에 후속 스키마 업데이트를 적용하기 전에  
 > 전체 스키마 업데이트 프로세스를 완료해야 합니다.  
-> 가장 좋은 방법은 모든 DDL을 단일 배치로 실행하여 프로시저가 한 번만 실행될 수 있도록 하는 것입니다.
+> 가장 좋은 방법은 모든 DDL을 단일 배치로 실행하여 프로시저가 한 번만 실행될 수 있도록 하는 것입니다.  
 
-> [!NOTE]
+> [!NOTE]  
 > CDC가 활성화된 원본 테이블에서는 일부 스키마 변경 사항이 지원되지 않음.  
 > 예를 들어 테이블에서 CDC가 활성화된 경우 SQL Server에서는 해당 열 중 하나의 이름을 바꾸거나  
-> 열 유형을 변경한 경우 테이블의 스키마 변경을 허용하지 않음.
+> 열 유형을 변경한 경우 테이블의 스키마 변경을 허용하지 않음.  
 
-> [!NOTE]
+> [!NOTE]  
 > 원본 테이블의 열을 `NULL`에서 `NOT NULL`로 또는 그 반대로 변경한 후에는  
 > 새 캡처 인스턴스를 생성할 때까지 SQL Server 커넥터가 변경된 정보를 올바르게 캡처할 수 없음.  
-> 
+>  
 > 열 지정을 변경한 후 새 캡처 테이블을 작성하지 않으면  
 > 커넥터가 생성하는 변경 이벤트 레코드가 해당 열이 선택사항인지 여부를 올바르게 나타내지 않음.  
 > 즉, 이전에 선택 사항(또는 `NULL`)으로 정의된 열은 현재는 `NOT NULL`으로 정의되어 있음에도 불구하고 계속해서 선택 사항으로 정의됨.  
 > 마찬가지로, 필수(`NOT NULL`)로 정의된 열은 이제 `NULL`로 정의되어 있어도 해당 지정을 유지.
 
-> [!NOTE]
+> [!NOTE]  
 > 함수를 사용하여 테이블 이름을 바꾼 후에 sp_rename는 커넥터가 다시 시작될 때까지 이전 원본 테이블 이름으로 변경 사항을 계속 내보냄.  
 > 커넥터를 다시 시작하면 새 원본 테이블 이름 아래에 변경 사항을 표시.
 
