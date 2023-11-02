@@ -1,5 +1,40 @@
 # kakfa connect
 
+## 환경설정
+
+### server.properties
+
+카프카 서버를 구동하기 위한 환경 설정  
+
+```bash
+$ vi ~/confluent/etc/kafka/server.properties
+############################# Socket Server Settings #############################
+
+# The address the socket server listens on. It will get the value returned from
+# java.net.InetAddress.getCanonicalHostName() if not configured.
+#   FORMAT:
+#     listeners = listener_name://host_name:port
+#   EXAMPLE:
+#     listeners = PLAINTEXT://your.host.name:9092
+# 모든 외부 네트워크에서 접속을 허용하겠다는 뜻.
+listeners=PLAINTEXT://0.0.0.0:9092
+
+# Hostname and port the broker will advertise to producers and consumers. If not set,
+# it uses the value for "listeners" if configured.  Otherwise, it will use the value
+# returned from java.net.InetAddress.getCanonicalHostName().
+advertised.listeners=PLAINTEXT://localhost:9092
+```
+
+### connect-distributed.properties
+
+kafka connector에 사용할 환경 설정  
+
+```bash
+$ vi ~/confluent/etc/kafka/connect-distributed.properties
+# A list of host/port pairs to use for establishing the initial connection to the Kafka cluster.
+bootstrap.servers=localhost:9092
+```
+
 ## topic 리셋
 
 * 작업하다가 보면 삭제가 제대도 되지 않는 토픽 발생
@@ -54,4 +89,86 @@ Partition(11) ["inventory-connector",{"server":"dbserver1"}] {"ts_sec":153016894
 ```bash
 $ echo '["inventory-connector",{"server":"dbserver1"}]|' | \
 kafkacat -P -Z -b localhost -t my_connect_offsets -K \| -p 11
+```
+
+## C# debezium topic consumer source
+
+.NET Core 6.0 으로 개발환경을 설정해야 System.Text.Json을 사용할 수 있음.
+
+```C#
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Channels;
+using System.Threading.Tasks;
+using Confluent.Kafka;
+
+namespace KafkaConsumer {
+    internal class Program {
+        static void Main(string[] args) {
+
+            var conf = new ConsumerConfig {
+                GroupId = "test-consumer-group",
+                ClientId = "mydb",
+                BootstrapServers = "localhost:9092",
+                // 참고: AutoOffsetReset 속성은 이벤트의 시작 오프셋을 결정합니다.
+                // Consumer 그룹에 대한 커밋된 오프셋이 아직 없습니다.
+                // 관심 있는 topic/파티션. 기본적으로 오프셋이 커밋됩니다.
+                // 자동으로, 이 예에서는 Consumer가 다음부터 시작됩니다.
+                // 프로그램을 처음 실행할 때 'my-topic' 주제에 가장 먼저 메시지가 표시됩니다.
+                AutoOffsetReset = AutoOffsetReset.Latest,
+                EnableAutoCommit = false
+            };
+
+            CancellationTokenSource cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (_, e) => {
+                e.Cancel = true;
+                cts.Cancel();
+            };
+
+            var c = new ConsumerBuilder<Ignore, string>(conf);
+
+            using var cb = c.Build();
+            TopicPartitionOffset tps = new TopicPartitionOffset(new TopicPartition("mydb.MyDB.dbo.Customer", 0), Offset.Beginning);
+            cb.Assign(tps);
+            // c.Subscribe("mydb.MyDB.dbo.Customer");
+            cb.Subscribe("mydb.MyDB.dbo.Customer");
+
+            try {
+                while (true) {
+                    try {
+                        var cr = cb.Consume(cts.Token);
+                        JsonNode json = JsonObject.Parse(cr.Message.Value);
+                        Console.WriteLine($"{cr.TopicPartitionOffset} - {DecodeEncodedNonAsciiCharacters(json["payload"]["after"].ToString())}");
+                        //Console.WriteLine($"Consumed Message '{cr.Value}' at '{cr.TopicPartitionOffset}'.");
+                    }
+                    catch (ConsumeException ce) {
+                        Console.WriteLine($"Error occured : {ce.Error.Reason}");
+                    }
+                }
+            }
+            catch (OperationCanceledException oe) {
+                cb.Close();
+            }
+        }
+
+        /// <summary>
+        /// 유니코드를 한글로 변환하기
+        /// </summary>
+        /// <param name="value">문자열</param>
+        /// <returns></returns>
+        static string DecodeEncodedNonAsciiCharacters(string value) {
+            return Regex.Replace(
+                value,
+                @"\\u(?<Value>[a-zA-Z0-9]{4})",
+                m => ((char)int.Parse(m.Groups["Value"].Value, NumberStyles.HexNumber)).ToString());
+        }
+
+    }
+}
 ```
